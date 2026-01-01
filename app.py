@@ -270,7 +270,7 @@ if nav == "📝 Daily Tracker":
     
     tab_food, tab_ex = st.tabs(["🍽️ Add Meal", "🏃 Add Exercise"])
     
-    # --- FIXED: NO FORMS TO ALLOW AUTO-UPDATE ---
+    # --- NO FORMS HERE (Required for auto-update) ---
     with tab_food:
         st.write("### Add Food")
         col_f1, col_f2 = st.columns([2, 1])
@@ -386,7 +386,7 @@ elif nav == "👤 Profile":
     st.header("👤 Update Profile")
     curr = st.session_state.user_profile
     
-    # Setup Indexes
+    # Defaults
     gender_opts = ["Male", "Female"]
     curr_gender = curr.get('gender', 'Male')
     g_idx = gender_opts.index(curr_gender) if curr_gender in gender_opts else 0
@@ -394,35 +394,10 @@ elif nav == "👤 Profile":
     curr_act = curr.get('activity', '')
     a_idx = ACTIVITY_LEVELS.index(curr_act) if curr_act in ACTIVITY_LEVELS else 0
     
-    # Setup Goals
+    # MULTI-GOAL RESTORATION
     curr_goals = curr.get('goals', [])
     if isinstance(curr_goals, str): curr_goals = [curr_goals]
     if not curr_goals: curr_goals = ["Maintain Current Weight"]
-    # Filter valid goals only
-    valid_goals = [g for g in curr_goals if g in GOAL_DB]
-    if not valid_goals: valid_goals = ["Maintain Current Weight"]
-
-    with st.form("profile_update"):
-        c1, c2 = st.columns(2)
-        w = c1.number_input("Weight (kg)", value=float(curr.get('weight', 70)))
-        h = c2.number_input("Height (cm)", value=int(curr.get('height', 170)))
-        a = c1.number_input("Age", value=int(curr.get('age', 30)))
-        g = c2.selectbox("Gender", gender_opts, index=g_idx)
-        act = st.selectbox("Activity Level", ACTIVITY_LEVELS, index=a_idx)
-        
-        # --- FIXED: MULTISELECT ---
-        goals = st.multiselect("Select Goals (Multiple Allowed)", sorted(list(GOAL_DB.keys())), default=valid_goals)
-        
-        if st.form_submit_button("💾 Save & Update"):
-            tdee = calculate_bmr_tdee(w, h, a, g, act)
-            new_target = calculate_target_from_goals(tdee, goals)
-            
-            updated_data = {
-                'weight': w, 'height': h, 'age': a, 'gender': g, 
-                'activity': act, 'goals': goals, 'target': new_target
-            }
-            st.session_state.user_profile = updated_data
-            if st.session_state.client:
-                save_profile_update(st.session_state.username, updated_data, st.session_state.client)
-                st.success(f"Updated! New Target: {new_target} kcal")
-                st.rerun()
+    
+    # Safety Check: Only keep goals that actually exist in the DB
+    valid_goals = [g
