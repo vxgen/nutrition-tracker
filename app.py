@@ -23,7 +23,6 @@ def get_google_sheet():
             key_dict = json.loads(st.secrets["service_account_info"])
             
             # 2. Fix the Private Key (CRITICAL FIX for Streamlit Cloud)
-            # This handles the newline character issue that causes 'spinning'
             if "\\n" in key_dict["private_key"]:
                 key_dict["private_key"] = key_dict["private_key"].replace("\\n", "\n")
             
@@ -63,7 +62,6 @@ def load_data(sheet):
 def save_entry_to_sheet(sheet, entry):
     try:
         if sheet:
-            # entry is a dict: {'date': '...', 'name': '...', 'cal': 123, 'type': '...'}
             row = [str(entry['date']), entry['name'], entry['cal'], entry['type']]
             sheet.append_row(row)
     except Exception as e:
@@ -83,25 +81,38 @@ FOOD_DB = pd.DataFrame([
     {'name': 'Apple', 'cal': 80, 'type': 'Snack', 'tags': ['Healthy', 'Carbs']}
 ])
 
+# --- UPDATED GOAL DICTIONARY (Diabetes & Medical Restored) ---
 GOAL_DB = {
-    # Weight
+    # Weight Management
     "Maintain Current Weight": 0,
     "Lose Weight (Slow & Steady)": -250,
     "Lose Weight (Standard)": -500,
     "Lose Weight (Aggressive)": -750,
     "Weight Gain (Muscle)": 300,
-    # Sports
+    
+    # Fitness & Performance
+    "Build Muscle (Lean Bulk)": 300,
+    "Build Muscle (Dirty Bulk)": 600,
     "Marathon / Ultra Training": 800,
     "Triathlon Training": 700,
     "Cycling (Endurance)": 600,
     "Swimming (Competitive)": 500,
-    "Strength Training": 400,
-    # Health
+    "Strength Training / Powerlifting": 400,
+    "CrossFit / HIIT Performance": 450,
+    
+    # Health & Medical (Restored)
+    "Manage Type 2 Diabetes (Low Sugar)": -200,  # <--- RESTORED
+    "Heart Health (Low Sodium)": -100,
+    "PCOS Management": -250,
+    "IBS / Low FODMAP": 0,
+    "Celiac / Gluten Free": 0,
+    
+    # Dietary Styles & Life Stages
     "Keto / Low Carb Adaptation": 0,
-    "Intermittent Fasting": 0,
+    "Intermittent Fasting (16:8)": 0,
     "Pregnancy (2nd/3rd Trimester)": 350,
     "Breastfeeding": 500,
-    "Heart Health": -100
+    "Improve Energy / Fatigue": 0
 }
 
 # --- 3. SESSION STATE INITIALIZATION ---
@@ -109,7 +120,6 @@ if 'sheet' not in st.session_state:
     st.session_state.sheet = get_google_sheet()
 
 if 'log' not in st.session_state:
-    # Try to load from sheet first, else empty list
     if st.session_state.sheet:
         loaded = load_data(st.session_state.sheet)
         st.session_state.log = loaded if loaded else []
@@ -200,6 +210,7 @@ if page == "👤 Profile & Targets":
     with c2:
         activity = st.selectbox("Activity Level", ["Sedentary (Office Job)", "Lightly Active (1-3 days)", "Moderately Active (3-5 days)", "Very Active (6-7 days)", "Athlete (2x per day)"])
         st.divider()
+        # Sort options for better UX
         all_options = sorted(list(GOAL_DB.keys()))
         selected_goals = st.multiselect("Select Goals:", all_options, default=["Maintain Current Weight"])
         with st.expander("Custom Goal"):
