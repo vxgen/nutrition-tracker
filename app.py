@@ -308,12 +308,15 @@ if nav == "📝 Daily Tracker":
                 st.toast(f"Added {name}")
                 st.rerun()
 
-    # 4. HISTORY
+    # 4. HISTORY (FIXED MISSING COLS)
     st.subheader("Today's History (Edit/Delete)")
     if today_logs:
         df = pd.DataFrame(today_logs)
-        for col in ['amount', 'unit']:
-            if col not in df.columns: df[col] = 1.0 if col == 'amount' else ''
+        
+        # --- FIX: FORCE MISSING COLUMNS IF OLD DATA ---
+        if 'amount' not in df.columns: df['amount'] = 1.0
+        if 'unit' not in df.columns: df['unit'] = 'serving'
+        # ----------------------------------------------
         
         edited_df = st.data_editor(
             df[['name', 'cal', 'type', 'amount', 'unit']],
@@ -339,7 +342,7 @@ if nav == "📝 Daily Tracker":
     else:
         st.info("No logs for today.")
 
-# --- PAGE: ANALYTICS (FIXED KEYERROR) ---
+# --- PAGE: ANALYTICS (FIXED TYPO) ---
 elif nav == "📊 Analytics":
     st.header("📊 Analytics")
     p_sheet = get_tab(st.session_state.client, "profiles")
@@ -348,8 +351,9 @@ elif nav == "📊 Analytics":
         user_records = [r for r in all_records if str(r.get('username')) == st.session_state.username]
         if user_records:
             df = pd.DataFrame(user_records)
-            # Normalize Headers to avoid KeyErrors (e.g. "Date" vs "date")
+            # Normalize Headers (Fix 'data' vs 'date' typo)
             df.columns = [c.lower() for c in df.columns]
+            df = df.rename(columns={'data': 'date'}) # <--- TYPO FIX
             
             if 'date' in df.columns and 'weight' in df.columns:
                 df['date'] = pd.to_datetime(df['date'])
@@ -357,7 +361,7 @@ elif nav == "📊 Analytics":
                 chart = alt.Chart(df).mark_line(point=True).encode(x='date:T', y=alt.Y('weight', scale=alt.Scale(zero=False))).properties(title="Weight Trend")
                 st.altair_chart(chart, use_container_width=True)
             else:
-                st.error("❌ Data Error: 'profiles' sheet missing 'date' or 'weight' columns. Check your Google Sheet headers.")
+                st.error(f"❌ Data Error: Columns found: {list(df.columns)}. Expected 'date' and 'weight'.")
         else:
             st.info("No profile history found.")
 
@@ -371,7 +375,6 @@ elif nav == "📅 Planner":
         plan = []
         current_cal = 0
         attempts = 0
-        # Randomly pick meals until target reached (minus buffer)
         while current_cal < (current_target - 200) and attempts < 20:
             item = FOOD_DB.sample(1).iloc[0].to_dict()
             plan.append(item)
