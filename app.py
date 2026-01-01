@@ -61,16 +61,17 @@ else:
 st.stop() # Stops the rest of the app from running so you can focus on this result
 # ---------------------------------------------------------
 
-# --- CONNECT TO GOOGLE SHEETS (EXPANDED TOML METHOD) ---
+# --- CONNECT TO GOOGLE SHEETS (TOML METHOD) ---
 @st.cache_resource
 def get_google_sheet():
     try:
-        # Check for the NEW name '[service_account]'
+        # Check if the secret exists
         if "service_account" in st.secrets:
             # DIRECTLY ACCESS THE DICT (Streamlit does the work for us)
+            # We convert it to a standard dict to be safe
             key_dict = dict(st.secrets["service_account"])
             
-            # Safety replacement for newlines, just in case
+            # Safety replacement for newlines (Fixes "Invalid Control Character" errors)
             if "\\n" in key_dict["private_key"]:
                 key_dict["private_key"] = key_dict["private_key"].replace("\\n", "\n")
             
@@ -84,11 +85,7 @@ def get_google_sheet():
             sheet = client.open("NutriTrack_Data").sheet1
             return sheet
         else:
-            # If we can't find the new name, check for the old one to be helpful
-            if "service_account_info" in st.secrets:
-                st.error("❌ Configuration Mismatch: Your Secrets use the OLD format, but code expects NEW format.")
-            else:
-                st.error("❌ Critical: '[service_account]' section not found in Secrets.")
+            st.error("❌ Critical: '[service_account]' section not found in Secrets.")
             return None
             
     except Exception as e:
