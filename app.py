@@ -113,7 +113,7 @@ if 'user_profile' not in st.session_state:
 if 'food_log' not in st.session_state:
     st.session_state.food_log = []
 
-# --- 5. LOGIC & DATA (RESTORED FULL LISTS) ---
+# --- 5. LOGIC & DATA (FULL LISTS) ---
 FOOD_DB = pd.DataFrame([
     {'name': 'Oatmeal & Berries', 'cal': 350, 'type': 'Breakfast'},
     {'name': 'Egg White Omelet', 'cal': 250, 'type': 'Breakfast'},
@@ -127,7 +127,7 @@ FOOD_DB = pd.DataFrame([
     {'name': 'Apple', 'cal': 80, 'type': 'Snack'}
 ])
 
-# --- RESTORED COMPREHENSIVE GOAL LIST ---
+# --- FULL GOAL LIST ---
 GOAL_DB = {
     # Weight Management
     "Maintain Current Weight": 0,
@@ -161,7 +161,7 @@ GOAL_DB = {
     "Improve Energy / Fatigue": 0
 }
 
-# --- RESTORED COMPREHENSIVE ACTIVITY LEVELS ---
+# --- FULL ACTIVITY LIST ---
 ACTIVITY_LEVELS = [
     "Sedentary (Office Job)",
     "Lightly Active (1-3 days)",
@@ -180,7 +180,6 @@ def calculate_target(weight, height, age, gender, activity, goal):
         "Very Active (6-7 days)": 1.725,
         "Athlete (2x per day)": 1.9
     }
-    # Default to 1.2 if not found
     tdee = bmr * multipliers.get(activity, 1.2)
     return int(tdee + GOAL_DB.get(goal, 0))
 
@@ -246,8 +245,7 @@ if nav == "📝 Daily Tracker":
     today_str = str(datetime.date.today())
     today_logs = [x for x in st.session_state.food_log if str(x.get('date')) == today_str]
     
-    # 1. Filter out 'Profile_Settings' (Ghost calories fix)
-    # 2. Separate Food vs Exercise
+    # FILTER LOGIC
     food_logs = [x for x in today_logs if x['type'] not in ['Exercise', 'Profile_Settings']]
     exercise_logs = [x for x in today_logs if x['type'] == 'Exercise']
     
@@ -268,7 +266,7 @@ if nav == "📝 Daily Tracker":
     st.progress(min(consumed/adjusted_target if adjusted_target > 0 else 1.0, 1.0))
     st.divider()
     
-    # INPUT TABS
+    # --- RESTORED EXERCISE TABS ---
     tab_food, tab_ex = st.tabs(["🍽️ Add Meal", "🏃 Add Exercise"])
     
     with tab_food:
@@ -287,7 +285,7 @@ if nav == "📝 Daily Tracker":
     with tab_ex:
         with st.form("add_exercise"):
             c_ex, c_burn = st.columns([2, 1])
-            ex_name = c_ex.text_input("Exercise (e.g., Running 5k)")
+            ex_name = c_ex.text_input("Exercise Name (e.g. Running)")
             ex_cal = c_burn.number_input("Calories Burned", min_value=0, step=10)
             if st.form_submit_button("Add Exercise"):
                 new_entry = {'date': today_str, 'name': ex_name, 'cal': ex_cal, 'type': 'Exercise'}
@@ -295,7 +293,7 @@ if nav == "📝 Daily Tracker":
                 if sheet1:
                     sheet1.append_row([today_str, ex_name, ex_cal, 'Exercise'])
                     st.session_state.food_log.append(new_entry)
-                    st.success(f"Added {ex_name} (-{ex_cal} kcal)")
+                    st.success(f"Added {ex_name}!")
                     st.rerun()
 
     # LOG DISPLAY
@@ -357,27 +355,34 @@ elif nav == "📅 Planner":
 elif nav == "👤 Profile":
     st.header("👤 Update Profile")
     curr = st.session_state.user_profile
+    
+    # --- AUTO-LOAD LOGIC ---
+    # We try to find the current values in our full lists.
+    # If they exist, we get the index. If not (e.g. data mismatch), default to 0.
+    
+    # 1. Gender Index
+    gender_opts = ["Male", "Female"]
+    curr_gender = curr.get('gender', 'Male')
+    g_idx = gender_opts.index(curr_gender) if curr_gender in gender_opts else 0
+    
+    # 2. Activity Index
+    curr_act = curr.get('activity', '')
+    a_idx = ACTIVITY_LEVELS.index(curr_act) if curr_act in ACTIVITY_LEVELS else 0
+    
+    # 3. Goal Index
+    goal_opts = sorted(list(GOAL_DB.keys()))
+    curr_goal = curr.get('goal', '')
+    goal_idx = goal_opts.index(curr_goal) if curr_goal in goal_opts else 0
+
     with st.form("profile_update"):
         c1, c2 = st.columns(2)
         w = c1.number_input("Weight (kg)", value=float(curr.get('weight', 70)))
         h = c2.number_input("Height (cm)", value=int(curr.get('height', 170)))
         a = c1.number_input("Age", value=int(curr.get('age', 30)))
-        g = c2.selectbox("Gender", ["Male", "Female"], index=0 if curr.get('gender') == 'Male' else 1)
+        g = c2.selectbox("Gender", gender_opts, index=g_idx)
         
-        # RESTORED ACTIVITY LEVEL DROPDOWN
-        act_index = 0
-        current_act = curr.get('activity', '')
-        if current_act in ACTIVITY_LEVELS:
-            act_index = ACTIVITY_LEVELS.index(current_act)
-        act = st.selectbox("Activity Level", ACTIVITY_LEVELS, index=act_index)
-        
-        # RESTORED GOAL DROPDOWN (Sorted)
-        goal_options = sorted(list(GOAL_DB.keys()))
-        goal_index = 0
-        current_goal = curr.get('goal', '')
-        if current_goal in goal_options:
-            goal_index = goal_options.index(current_goal)
-        goal = st.selectbox("Goal", goal_options, index=goal_index)
+        act = st.selectbox("Activity Level", ACTIVITY_LEVELS, index=a_idx)
+        goal = st.selectbox("Goal", goal_opts, index=goal_idx)
         
         if st.form_submit_button("💾 Save & Update"):
             new_target = calculate_target(w, h, a, g, act, goal)
