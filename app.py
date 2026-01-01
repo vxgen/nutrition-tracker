@@ -21,8 +21,6 @@ FOOD_DB = pd.DataFrame([
 ])
 
 # --- 3. DATA: THE MEGA GOAL DICTIONARY ---
-# This acts as your "Internal Search Engine".
-# Format: "Goal Name": Daily Calorie Adjustment
 GOAL_DB = {
     # --- WEIGHT MANAGEMENT ---
     "Maintain Current Weight": 0,
@@ -32,15 +30,14 @@ GOAL_DB = {
     "Weight Gain (Slow)": 250,
     "Weight Gain (Fast)": 500,
     
-    # --- FITNESS & BODYBUILDING ---
+    # --- FITNESS ---
     "Build Muscle (Lean Bulk)": 300,
     "Build Muscle (Dirty Bulk)": 600,
-    "Body Recomposition (Lose Fat/Gain Muscle)": -200,
-    "Strength Training (Powerlifting)": 400,
+    "Body Recomposition": -200,
+    "Strength Training": 400,
     "CrossFit / HIIT Performance": 400,
-    "Six Pack Abs (Definition)": -300,
     
-    # --- SPORTS SPECIFIC ---
+    # --- SPORTS ---
     "Marathon / Ultra Training": 800,
     "Triathlon Training": 700,
     "Cycling (Endurance)": 600,
@@ -49,33 +46,14 @@ GOAL_DB = {
     "Basketball Performance": 400,
     "Boxing / MMA Training": 500,
     "Yoga / Pilates Lifestyle": 100,
-    "Golf Performance": 100,
     
-    # --- DIETARY STYLES ---
+    # --- DIETARY & HEALTH ---
     "Keto / Low Carb Adaptation": 0,
-    "Carnivore Diet Support": 0,
-    "Vegan / Plant-Based Transition": 0,
-    "Paleo Lifestyle": 0,
     "Intermittent Fasting (16:8)": 0,
-    "OMAD (One Meal A Day)": 0,
-    
-    # --- MEDICAL / HEALTH (Non-Diagnostic) ---
     "Manage Type 2 Diabetes (Low Sugar)": -200,
-    "Heart Health (Low Sodium/Cholesterol)": -100,
-    "PCOS Management": -250,
-    "IBS / Low FODMAP": 0,
-    "Celiac / Gluten Free": 0,
-    "Pregnancy (1st Trimester)": 100,
+    "Heart Health (Low Sodium)": -100,
     "Pregnancy (2nd/3rd Trimester)": 350,
-    "Breastfeeding / Lactation": 500,
-    "Recovery from Surgery/Injury": 200,
-    
-    # --- LIFESTYLE ---
-    "Improve Energy Levels": 0,
-    "Better Sleep Hygiene": 0,
-    "Quit Smoking (Manage Appetite)": -150,
-    "Reduce Alcohol Consumption": -100,
-    "Cognitive Performance (Brain Food)": 0
+    "Breastfeeding": 500
 }
 
 # --- 4. SESSION STATE ---
@@ -89,6 +67,14 @@ if 'setup_complete' not in st.session_state: st.session_state.setup_complete = F
 def calculate_bmr(weight, height, age, gender):
     return (10 * weight) + (6.25 * height) - (5 * age) + 5 if gender == 'Male' else (10 * weight) + (6.25 * height) - (5 * age) - 161
 
+def calculate_bmi(weight, height_cm):
+    height_m = height_cm / 100
+    bmi = weight / (height_m ** 2)
+    if bmi < 18.5: return bmi, "Underweight"
+    elif 18.5 <= bmi < 24.9: return bmi, "Healthy Weight"
+    elif 25 <= bmi < 29.9: return bmi, "Overweight"
+    else: return bmi, "Obese"
+
 def calculate_tdee(bmr, activity_level):
     multipliers = {
         "Sedentary (Office Job)": 1.2,
@@ -101,13 +87,8 @@ def calculate_tdee(bmr, activity_level):
 
 def calculate_target_from_goals(tdee, selected_goals, custom_goals_list):
     adjustment = 0
-    # 1. DB Goals
     for goal in selected_goals:
         adjustment += GOAL_DB.get(goal, 0)
-    
-    # 2. Custom Goals (Simple logic: If user adds custom "Run", we don't know the cal, so we add 0)
-    # Ideally, custom goals are just for the user's reference in the UI.
-    
     return max(tdee + adjustment, 1200)
 
 def generate_menu(target):
@@ -129,9 +110,15 @@ def generate_menu(target):
 st.sidebar.title("📱 Navigation")
 page = st.sidebar.radio("Go to", ["👤 Profile & Targets", "📅 Smart Planner", "📝 Daily Tracker", "📊 Dashboard"])
 st.sidebar.divider()
+
 if st.session_state.setup_complete:
     p = st.session_state.user_profile
     st.sidebar.metric("Daily Target", f"{p['target']:.0f} kcal")
+    
+    # NEW: Show BMI in Sidebar
+    if 'bmi' in p:
+        st.sidebar.metric("Your BMI", f"{p['bmi']:.1f}", p['bmi_category'])
+    
     st.sidebar.caption("Goals Active: " + str(len(p['goals'])))
 
 # --- PAGE 1: SETUP ---
@@ -149,46 +136,48 @@ if page == "👤 Profile & Targets":
         
         st.divider()
         st.subheader("3. Smart Goal Search")
-        st.write("Type to search our database (e.g., 'Keto', 'Run', 'Diabetes').")
         
-        # --- THE PREDICTIVE SEARCH ENGINE ---
-        # Sorting keys alphabetically makes searching easier visually too
         all_options = sorted(list(GOAL_DB.keys()))
+        selected_goals = st.multiselect("Select your Goals:", all_options, default=["Maintain Current Weight"])
         
-        selected_goals = st.multiselect(
-            "Select your Goals:", 
-            all_options,
-            default=["Maintain Current Weight"],
-            placeholder="Type here to search..."
-        )
-        
-        # --- CUSTOM GOAL FALLBACK ---
-        st.write("---")
         with st.expander("My goal isn't in the list"):
-            st.write("If you have a very specific goal not listed above, add it here.")
             custom_input = st.text_input("Custom Goal Name")
-            if custom_input:
-                st.info(f"Custom Goal '{custom_input}' will be tagged to your profile (No calorie adjustment applied).")
 
     st.divider()
     if st.button("💾 Save Profile", type="primary"):
+        # 1. Math
         bmr = calculate_bmr(weight, height, age, gender)
         tdee = calculate_tdee(bmr, activity)
+        bmi, bmi_cat = calculate_bmi(weight, height) # NEW: Calculate BMI
         
-        # Combine lists for storage
+        # 2. Goals
         final_goals_list = selected_goals
-        if custom_input:
-            final_goals_list.append(custom_input)
-            
+        if custom_input: final_goals_list.append(custom_input)
         target = calculate_target_from_goals(tdee, selected_goals, [custom_input])
         
+        # 3. Save
         st.session_state.user_profile = {
             'name': name, 'bmr': bmr, 'tdee': tdee, 'target': target, 
-            'goals': final_goals_list, 'activity': activity
+            'goals': final_goals_list, 'activity': activity,
+            'bmi': bmi, 'bmi_category': bmi_cat # NEW: Save BMI
         }
         st.session_state.setup_complete = True
         st.balloons()
-        st.success("Profile Saved! Check the sidebar for your new targets.")
+        st.rerun()
+
+    # Display Results if Saved
+    if st.session_state.setup_complete:
+        p = st.session_state.user_profile
+        
+        st.success("Profile Saved Successfully!")
+        
+        # NEW: BMI Visualizer in Result
+        st.subheader("Your Health Stats")
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("BMI", f"{p['bmi']:.1f}", p['bmi_category'])
+        k2.metric("BMR (Rest)", f"{p['bmr']:.0f} kcal")
+        k3.metric("TDEE (Maint)", f"{p['tdee']:.0f} kcal")
+        k4.metric("TARGET", f"{p['target']:.0f} kcal", "Daily Goal")
 
 # --- PAGE 2: PLANNER ---
 elif page == "📅 Smart Planner":
@@ -197,8 +186,6 @@ elif page == "📅 Smart Planner":
         st.warning("Please complete your profile setup first.")
     else:
         st.subheader(f"Plan for: {st.session_state.user_profile['name']}")
-        st.write(f"**Goals:** {', '.join(st.session_state.user_profile['goals'])}")
-        
         duration = st.selectbox("Plan Duration", ["1 Week", "1 Month", "3 Months", "6 Months", "1 Year"])
         
         if st.button("Generate Meal Plan"):
