@@ -3,6 +3,7 @@ import pandas as pd
 import datetime
 import altair as alt
 import gspread
+import random
 from google.oauth2.service_account import Credentials
 
 # --- 1. CONFIGURATION ---
@@ -130,21 +131,30 @@ if 'user_profile' not in st.session_state:
 if 'food_log' not in st.session_state:
     st.session_state.food_log = []
 if 'generated_plan' not in st.session_state:
-    st.session_state.generated_plan = []
+    st.session_state.generated_plan = {} # Changed to Dict for multiple days
 
 # --- 5. DATA ---
 
 FOOD_DB = pd.DataFrame([
-    {'name': 'Oatmeal & Berries', 'cal_per_unit': 350, 'unit': 'Bowl'},
-    {'name': 'Egg White Omelet', 'cal_per_unit': 250, 'unit': 'Serving'},
-    {'name': 'Avocado Toast', 'cal_per_unit': 400, 'unit': 'Slice'},
-    {'name': 'Grilled Chicken Salad', 'cal_per_unit': 450, 'unit': 'Bowl'},
-    {'name': 'Quinoa Power Bowl', 'cal_per_unit': 500, 'unit': 'Bowl'},
-    {'name': 'Grilled Salmon', 'cal_per_unit': 600, 'unit': 'Fillet'},
-    {'name': 'Lean Steak & Veg', 'cal_per_unit': 700, 'unit': 'Plate'},
-    {'name': 'Protein Shake', 'cal_per_unit': 180, 'unit': 'Bottle'},
-    {'name': 'Almonds', 'cal_per_unit': 170, 'unit': '30g'},
-    {'name': 'Apple', 'cal_per_unit': 80, 'unit': 'Piece'}
+    {'name': 'Oatmeal & Berries', 'cal_per_unit': 350, 'unit': 'Bowl', 'type': 'Breakfast'},
+    {'name': 'Egg White Omelet', 'cal_per_unit': 250, 'unit': 'Serving', 'type': 'Breakfast'},
+    {'name': 'Avocado Toast', 'cal_per_unit': 400, 'unit': 'Slice', 'type': 'Breakfast'},
+    {'name': 'Greek Yogurt Parfait', 'cal_per_unit': 300, 'unit': 'Bowl', 'type': 'Breakfast'},
+    
+    {'name': 'Grilled Chicken Salad', 'cal_per_unit': 450, 'unit': 'Bowl', 'type': 'Lunch'},
+    {'name': 'Quinoa Power Bowl', 'cal_per_unit': 500, 'unit': 'Bowl', 'type': 'Lunch'},
+    {'name': 'Turkey Wrap', 'cal_per_unit': 400, 'unit': 'Wrap', 'type': 'Lunch'},
+    {'name': 'Tuna Salad', 'cal_per_unit': 350, 'unit': 'Serving', 'type': 'Lunch'},
+
+    {'name': 'Grilled Salmon', 'cal_per_unit': 600, 'unit': 'Fillet', 'type': 'Dinner'},
+    {'name': 'Lean Steak & Veg', 'cal_per_unit': 700, 'unit': 'Plate', 'type': 'Dinner'},
+    {'name': 'Veggie Stir Fry', 'cal_per_unit': 550, 'unit': 'Bowl', 'type': 'Dinner'},
+    {'name': 'Baked Cod', 'cal_per_unit': 500, 'unit': 'Fillet', 'type': 'Dinner'},
+
+    {'name': 'Protein Shake', 'cal_per_unit': 180, 'unit': 'Bottle', 'type': 'Snack'},
+    {'name': 'Almonds', 'cal_per_unit': 170, 'unit': '30g', 'type': 'Snack'},
+    {'name': 'Apple', 'cal_per_unit': 80, 'unit': 'Piece', 'type': 'Snack'},
+    {'name': 'Hummus & Carrots', 'cal_per_unit': 200, 'unit': 'Serving', 'type': 'Snack'}
 ])
 
 EXERCISE_DB = pd.DataFrame([
@@ -312,11 +322,8 @@ if nav == "📝 Daily Tracker":
     st.subheader("Today's History (Edit/Delete)")
     if today_logs:
         df = pd.DataFrame(today_logs)
-        
-        # --- FIX: FORCE MISSING COLUMNS IF OLD DATA ---
-        if 'amount' not in df.columns: df['amount'] = 1.0
-        if 'unit' not in df.columns: df['unit'] = 'serving'
-        # ----------------------------------------------
+        for col in ['amount', 'unit']:
+            if col not in df.columns: df[col] = 1.0 if col == 'amount' else ''
         
         edited_df = st.data_editor(
             df[['name', 'cal', 'type', 'amount', 'unit']],
@@ -351,7 +358,6 @@ elif nav == "📊 Analytics":
         user_records = [r for r in all_records if str(r.get('username')) == st.session_state.username]
         if user_records:
             df = pd.DataFrame(user_records)
-            # Normalize Headers (Fix 'data' vs 'date' typo)
             df.columns = [c.lower() for c in df.columns]
             df = df.rename(columns={'data': 'date'}) # <--- TYPO FIX
             
@@ -365,27 +371,90 @@ elif nav == "📊 Analytics":
         else:
             st.info("No profile history found.")
 
-# --- PAGE: PLANNER (RESTORED) ---
+# --- PAGE: PLANNER (RESTORED & EXPANDED) ---
 elif nav == "📅 Planner":
     st.header("📅 Smart Meal Planner")
     current_target = st.session_state.user_profile.get('target', 2000)
-    st.write(f"Generating plan for target: **{current_target} kcal**")
+    
+    col_p1, col_p2 = st.columns([3, 1])
+    col_p1.write(f"Generating plan for target: **{current_target} kcal/day**")
+    
+    # 1. Select Duration
+    duration = col_p2.selectbox("Plan Duration", ["Today's Plan", "Weekly (7 Days)", "Monthly (30 Days)"])
     
     if st.button("🎲 Generate Meal Plan"):
-        plan = []
-        current_cal = 0
-        attempts = 0
-        while current_cal < (current_target - 200) and attempts < 20:
-            item = FOOD_DB.sample(1).iloc[0].to_dict()
-            plan.append(item)
-            current_cal += item['cal_per_unit']
-            attempts += 1
-        st.session_state.generated_plan = plan
+        days = 1
+        if "Weekly" in duration: days = 7
+        if "Monthly" in duration: days = 30
+        
+        full_plan = {} # Dictionary to store days
+        
+        for d in range(1, days + 1):
+            day_plan = []
+            current_cal = 0
+            attempts = 0
+            
+            # Logic: Ensure 1 Breakfast, 1 Lunch, 1 Dinner first
+            for meal_type in ['Breakfast', 'Lunch', 'Dinner']:
+                # Filter DB for specific meal type
+                options = FOOD_DB[FOOD_DB['type'] == meal_type]
+                if not options.empty:
+                    item = options.sample(1).iloc[0].to_dict()
+                    day_plan.append(item)
+                    current_cal += item['cal_per_unit']
+            
+            # Fill remaining calories with Snacks
+            while current_cal < (current_target - 150) and attempts < 20:
+                options = FOOD_DB[FOOD_DB['type'] == 'Snack']
+                if not options.empty:
+                    item = options.sample(1).iloc[0].to_dict()
+                    day_plan.append(item)
+                    current_cal += item['cal_per_unit']
+                attempts += 1
+                
+            full_plan[f"Day {d}"] = day_plan
+            
+        st.session_state.generated_plan = full_plan
 
+    # 2. Display Plan
     if st.session_state.generated_plan:
-        st.write("### Suggested Menu")
-        for item in st.session_state.generated_plan:
-            c1, c2, c3 = st.columns([3, 1, 1])
-            c1.write(f"**{item['name']}**")
-            c2.write(f"{item['cal_per_unit']} kcal")
-            c3.write(f"_{item['unit']}_")
+        st.divider()
+        st.subheader(f"🥗 Your {duration}")
+        
+        # Iterate through days
+        for day_label, meals in st.session_state.generated_plan.items():
+            # Calculate total cals for the day
+            day_total = sum(m['cal_per_unit'] for m in meals)
+            
+            with st.expander(f"**{day_label}** - {day_total} kcal"):
+                for item in meals:
+                    c1, c2, c3 = st.columns([2, 1, 1])
+                    c1.write(f"**{item['type']}**: {item['name']}")
+                    c2.write(f"{item['cal_per_unit']} kcal")
+                    c3.write(f"_{item['unit']}_")
+
+# --- PAGE: PROFILE ---
+elif nav == "👤 Profile":
+    st.header("👤 Profile Settings")
+    curr = st.session_state.user_profile
+    with st.form("prof"):
+        w = st.number_input("Weight (kg)", value=float(curr.get('weight', 70)))
+        h = st.number_input("Height (cm)", value=int(curr.get('height', 170)))
+        a = st.number_input("Age", value=int(curr.get('age', 30)))
+        g = st.selectbox("Gender", ["Male", "Female"], index=0 if curr.get('gender')=='Male' else 1)
+        
+        act_idx = 0
+        if curr.get('activity') in ACTIVITY_LEVELS:
+            act_idx = ACTIVITY_LEVELS.index(curr.get('activity'))
+        act = st.selectbox("Activity", ACTIVITY_LEVELS, index=act_idx)
+        
+        goals = st.multiselect("Goals", list(GOAL_DB.keys()), default=curr.get('goals', ['Maintain Current Weight']))
+        
+        if st.form_submit_button("Update"):
+            t = calculate_bmr_tdee(w, h, a, g, act)
+            tgt = calculate_target(t, goals)
+            upd = {'weight': w, 'height': h, 'age': a, 'gender': g, 'activity': act, 'goals': goals, 'target': tgt}
+            st.session_state.user_profile = upd
+            save_profile_update(st.session_state.username, upd, st.session_state.client)
+            st.success(f"Saved! New Target: {tgt} kcal")
+            st.rerun()
