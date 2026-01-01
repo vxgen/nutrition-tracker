@@ -4,227 +4,226 @@ import datetime
 import altair as alt
 
 # --- 1. CONFIGURATION & MOCK DATA ---
-st.set_page_config(page_title="NutriTrack", layout="wide")
+st.set_page_config(page_title="NutriTrack AI", layout="wide")
 
-# Mock Database for Food (In a real app, this would be a SQL DB or API)
-FOOD_DB = pd.DataFrame({
-    'name': ['Apple', 'Banana', 'Chicken Breast', 'Rice (White)', 'Broccoli', 'Egg', 'Milk', 'Salad', 'Protein Shake', 'Pizza Slice', 'Soda'],
-    'calories_per_100g': [52, 89, 165, 130, 34, 155, 42, 33, 120, 266, 41],
-    'type': ['Food', 'Food', 'Food', 'Food', 'Food', 'Food', 'Drink', 'Food', 'Drink', 'Food', 'Drink']
-})
+# Expanded Mock Database
+FOOD_DB = pd.DataFrame([
+    {'name': 'Oatmeal & Berries', 'cal': 350, 'type': 'Breakfast'},
+    {'name': 'Eggs & Toast', 'cal': 400, 'type': 'Breakfast'},
+    {'name': 'Grilled Chicken Salad', 'cal': 450, 'type': 'Lunch'},
+    {'name': 'Tuna Wrap', 'cal': 500, 'type': 'Lunch'},
+    {'name': 'Steak & Veggies', 'cal': 700, 'type': 'Dinner'},
+    {'name': 'Salmon & Rice', 'cal': 650, 'type': 'Dinner'},
+    {'name': 'Greek Yogurt', 'cal': 150, 'type': 'Snack'},
+    {'name': 'Protein Shake', 'cal': 180, 'type': 'Snack'},
+    {'name': 'Apple', 'cal': 80, 'type': 'Snack'},
+    {'name': 'Almonds (30g)', 'cal': 170, 'type': 'Snack'}
+])
 
-# Mock Database for Exercise (MET values approx)
-EXERCISE_DB = {
-    'Running (moderate)': 8.0,
-    'Walking (brisk)': 4.0,
-    'Cycling': 6.0,
-    'Weight Lifting': 3.5,
-    'Yoga': 2.5,
-    'Swimming': 7.0
-}
-
-# --- 2. SESSION STATE SETUP (To hold data while app runs) ---
+# --- 2. SESSION STATE ---
 if 'log' not in st.session_state:
-    st.session_state.log = [] # List of dictionaries
-if 'user_targets' not in st.session_state:
-    st.session_state.user_targets = {'daily': 2000, 'goal': 'Maintain Weight'}
-if 'plan' not in st.session_state:
-    st.session_state.plan = [] # Items planned for the day
+    st.session_state.log = [] 
+if 'generated_plan' not in st.session_state:
+    st.session_state.generated_plan = None # Stores the calculated plan
+if 'user_profile' not in st.session_state:
+    st.session_state.user_profile = {}
 
 # --- 3. HELPER FUNCTIONS ---
-def convert_cal_to_kj(cal):
-    return cal * 4.184
+def calculate_bmr(weight, height, age, gender):
+    # Mifflin-St Jeor Equation
+    if gender == 'Male':
+        return (10 * weight) + (6.25 * height) - (5 * age) + 5
+    else:
+        return (10 * weight) + (6.25 * height) - (5 * age) - 161
 
-def get_calories(food_name, amount_g):
-    food = FOOD_DB[FOOD_DB['name'] == food_name].iloc[0]
-    return (food['calories_per_100g'] * amount_g) / 100
+def calculate_tdee(bmr, activity_level):
+    multipliers = {
+        "Sedentary (Office job, little exercise)": 1.2,
+        "Light (1-3 days/week training)": 1.375,
+        "Moderate (3-5 days/week training)": 1.55,
+        "Heavy (6-7 days/week training)": 1.725,
+        "Athlete (2x per day training)": 1.9
+    }
+    return bmr * multipliers.get(activity_level, 1.2)
 
-def suggest_food(calories_left):
-    """Simple logic to suggest food based on remaining budget"""
-    if calories_left <= 0:
-        return []
-    # Find foods where a 100g serving fits the budget
-    options = FOOD_DB[FOOD_DB['calories_per_100g'] <= calories_left]
-    return options['name'].tolist()
+def generate_daily_menu(target_calories):
+    """Simple logic to pick meals adding up to target"""
+    menu = []
+    current_cal = 0
+    
+    # 1. Pick Breakfast
+    bk = FOOD_DB[FOOD_DB['type'] == 'Breakfast'].sample(1).iloc[0]
+    menu.append(bk)
+    current_cal += bk['cal']
+    
+    # 2. Pick Lunch
+    ln = FOOD_DB[FOOD_DB['type'] == 'Lunch'].sample(1).iloc[0]
+    menu.append(ln)
+    current_cal += ln['cal']
+    
+    # 3. Pick Dinner
+    dn = FOOD_DB[FOOD_DB['type'] == 'Dinner'].sample(1).iloc[0]
+    menu.append(dn)
+    current_cal += dn['cal']
+    
+    # 4. Fill remaining with Snacks
+    while current_cal < (target_calories - 100):
+        sn = FOOD_DB[FOOD_DB['type'] == 'Snack'].sample(1).iloc[0]
+        menu.append(sn)
+        current_cal += sn['cal']
+        
+    return menu, current_cal
 
-# --- 4. SIDEBAR: SETTINGS & TARGETS ---
-st.sidebar.header("⚙️ User Settings")
+# --- 4. MAIN INTERFACE ---
+st.title("🍎 NutriTrack: Smart Planner")
 
-# Unit Preference
-unit = st.sidebar.radio("Preferred Unit", ["Calories (kcal)", "Kilojoules (kJ)"])
+tab1, tab2, tab3 = st.tabs(["📅 Smart Planner", "📝 Daily Log", "📊 Dashboard"])
 
-# Goal Setting
-st.sidebar.subheader("Set Targets")
-goal_type = st.sidebar.selectbox("Goal", ["Lose Weight", "Maintain Weight", "Gain Muscle"])
-daily_target = st.sidebar.number_input("Daily Target (kcal)", value=st.session_state.user_targets['daily'])
-st.session_state.user_targets = {'daily': daily_target, 'goal': goal_type}
-
-# Calculate Weekly/Monthly targets automatically
-weekly_target = daily_target * 7
-monthly_target = daily_target * 30
-
-# --- 5. MAIN INTERFACE ---
-st.title("🍎 NutriTrack: Daily Nutrition & Fitness")
-
-# Tabs for major functionalities
-tab1, tab2, tab3, tab4 = st.tabs(["📝 Daily Log", "📅 Planner", "📊 Overview & Insights", "🏃 Fitness Calculator"])
-
-# --- TAB 1: DAILY LOG (Inputs for Food) ---
+# --- TAB 1: SMART PLANNER (The Major Update) ---
 with tab1:
-    st.subheader("Log your Intake")
+    st.header("1. Create Your Plan")
     
     col1, col2 = st.columns(2)
     with col1:
-        # Dropdown with predictive typing (Streamlit handles filtering automatically)
-        food_choice = st.selectbox("Select Food/Drink", FOOD_DB['name'].unique())
+        st.subheader("Your Stats")
+        age = st.number_input("Age", 18, 100, 30)
+        gender = st.selectbox("Gender", ["Male", "Female"])
+        weight = st.number_input("Weight (kg)", 40, 200, 70)
+        height = st.number_input("Height (cm)", 100, 250, 175)
+        
     with col2:
-        amount = st.number_input("Amount (grams or ml)", min_value=1, value=100)
-    
-    if st.button("Add Intake"):
-        cals = get_calories(food_choice, amount)
-        st.session_state.log.append({
-            'type': 'Intake',
-            'name': food_choice,
-            'amount': amount,
-            'calories': cals,
-            'date': datetime.date.today()
-        })
-        st.success(f"Added {food_choice}!")
+        st.subheader("Goals & Activity")
+        goal = st.selectbox("Goal", ["Lose Weight", "Maintain Weight", "Build Muscle"])
+        activity = st.selectbox("Activity Level (Includes your training)", 
+                                ["Sedentary (Office job, little exercise)", 
+                                 "Light (1-3 days/week training)", 
+                                 "Moderate (3-5 days/week training)", 
+                                 "Heavy (6-7 days/week training)",
+                                 "Athlete (2x per day training)"])
+        duration = st.selectbox("Plan Duration", ["1 Week", "1 Month", "1 Quarter", "Half Year", "1 Year"])
+
+    if st.button("GENERATE MY PLAN"):
+        # 1. Calculate BMR & TDEE
+        bmr = calculate_bmr(weight, height, age, gender)
+        tdee = calculate_tdee(bmr, activity)
+        
+        # 2. Adjust for Goal
+        target_cal = tdee
+        if goal == "Lose Weight":
+            target_cal = tdee - 500 # Standard deficit
+        elif goal == "Build Muscle":
+            target_cal = tdee + 300 # Standard surplus
+            
+        # 3. Store in Session
+        st.session_state.user_profile = {
+            'bmr': bmr, 'tdee': tdee, 'target': target_cal, 
+            'goal': goal, 'duration': duration
+        }
+        
+        # 4. Generate Sample Menu
+        menu, menu_cal = generate_daily_menu(target_cal)
+        st.session_state.generated_plan = menu
+        st.rerun()
 
     st.divider()
     
-    # Tick off from Plan Logic
-    if st.session_state.plan:
-        st.subheader("Tick off from Plan")
-        for i, item in enumerate(st.session_state.plan):
-            col_a, col_b = st.columns([4, 1])
-            with col_a:
-                st.write(f"Planned: {item['name']} ({item['amount']}g)")
-            with col_b:
-                if st.button("Eat", key=f"plan_{i}"):
-                    cals = get_calories(item['name'], item['amount'])
+    # Display the Plan Result
+    if st.session_state.generated_plan:
+        profile = st.session_state.user_profile
+        
+        # Summary Box
+        st.info(f"""
+        **Plan Generated for {profile['goal']}**
+        Based on your stats and activity, your body burns approx **{profile['tdee']:.0f} kcal/day**.
+        To reach your goal, your daily target is: **{profile['target']:.0f} kcal**.
+        """)
+        
+        st.subheader(f"Your Suggested Daily Menu ({profile['target']:.0f} kcal)")
+        
+        # Show the menu in a nice clean list
+        for item in st.session_state.generated_plan:
+            c1, c2, c3 = st.columns([1, 4, 2])
+            with c1:
+                st.write(f"**{item['type']}**")
+            with c2:
+                st.write(item['name'])
+            with c3:
+                st.write(f"{item['cal']} kcal")
+                
+        # Calendar View (Visualizing the duration)
+        st.subheader(f"Plan Calendar ({profile['duration']})")
+        
+        days_map = {"1 Week": 7, "1 Month": 30, "1 Quarter": 90, "Half Year": 180, "1 Year": 365}
+        total_days = days_map.get(profile['duration'], 7)
+        
+        # Create a mock calendar dataframe
+        start_date = datetime.date.today()
+        date_list = [start_date + datetime.timedelta(days=x) for x in range(total_days)]
+        
+        # Visualizing simply as a progress timeline or table
+        st.write(f"This plan covers **{total_days} days**. Tick off your meals in the 'Daily Log' tab.")
+        
+        # Show first 7 days as a preview
+        cal_df = pd.DataFrame({
+            'Date': date_list[:7],
+            'Planned Calories': [profile['target']] * 7,
+            'Status': ['Planned'] * 7
+        })
+        st.table(cal_df)
+        if total_days > 7:
+            st.caption("...and so on for the rest of the duration.")
+
+# --- TAB 2: DAILY LOG (Execution) ---
+with tab2:
+    st.header("📝 Track Your Day")
+    
+    # Pre-fill target from the planner if it exists
+    if st.session_state.user_profile:
+        target = st.session_state.user_profile.get('target', 2000)
+        st.progress(0, text=f"Daily Target: {target:.0f} kcal")
+    
+    # If a plan is generated, allow "Quick Add"
+    if st.session_state.generated_plan:
+        st.subheader("Eat from Plan")
+        cols = st.columns(len(st.session_state.generated_plan))
+        for idx, item in enumerate(st.session_state.generated_plan):
+            with cols[idx % 3]: # Wrap around columns
+                if st.button(f"Eat {item['name']}", key=f"eat_{idx}"):
                     st.session_state.log.append({
-                        'type': 'Intake',
                         'name': item['name'],
-                        'amount': item['amount'],
-                        'calories': cals,
+                        'cal': item['cal'],
                         'date': datetime.date.today()
                     })
-                    st.session_state.plan.pop(i)
-                    st.rerun()
+                    st.success(f"Logged {item['name']}")
 
-    # Display Today's Log
-    st.subheader("Today's Record")
-    today_log = [x for x in st.session_state.log if x['date'] == datetime.date.today()]
-    if today_log:
-        df_log = pd.DataFrame(today_log)
-        if unit == "Kilojoules (kJ)":
-            df_log['Energy (kJ)'] = df_log['calories'].apply(convert_cal_to_kj)
-            st.table(df_log[['type', 'name', 'amount', 'Energy (kJ)']])
-        else:
-            st.table(df_log[['type', 'name', 'amount', 'calories']])
-    else:
-        st.info("No records for today yet.")
-
-# --- TAB 2: PLANNER ---
-with tab2:
-    st.subheader("Plan Your Meals")
-    st.write("Add items here to build a plan. They won't count as intake until you 'Tick them off' in the Daily Log.")
-    
-    p_food = st.selectbox("Plan Food", FOOD_DB['name'].unique(), key="plan_sel")
-    p_amount = st.number_input("Plan Amount (g)", min_value=1, value=100, key="plan_amt")
-    
-    if st.button("Add to Plan"):
-        st.session_state.plan.append({'name': p_food, 'amount': p_amount})
-        st.success("Added to plan!")
-        
-    st.write("Current Plan:")
-    st.write(st.session_state.plan)
-
-# --- TAB 3: OVERVIEW & INSIGHTS ---
-with tab3:
-    st.subheader("Energy Balance Dashboard")
-    
-    # Calculate totals
-    today_items = [x for x in st.session_state.log if x['date'] == datetime.date.today()]
-    
-    total_intake = sum([x['calories'] for x in today_items if x['type'] == 'Intake'])
-    total_burn = sum([x['calories'] for x in today_items if x['type'] == 'Exercise'])
-    net_calories = total_intake - total_burn
-    
-    remaining = daily_target - net_calories
-    
-    # Metrics Row
-    m1, m2, m3 = st.columns(3)
-    
-    display_intake = total_intake * 4.184 if unit == "Kilojoules (kJ)" else total_intake
-    display_target = daily_target * 4.184 if unit == "Kilojoules (kJ)" else daily_target
-    display_rem = remaining * 4.184 if unit == "Kilojoules (kJ)" else remaining
-    label_unit = "kJ" if unit == "Kilojoules (kJ)" else "kcal"
-
-    m1.metric("Total Intake", f"{display_intake:.0f} {label_unit}")
-    m2.metric("Target", f"{display_target:.0f} {label_unit}")
-    m3.metric("Remaining", f"{display_rem:.0f} {label_unit}", delta_color="normal")
-    
-    # Progress Bar
-    st.write("Daily Progress")
-    progress = min(total_intake / daily_target, 1.0) if daily_target > 0 else 0
-    st.progress(progress)
-    
     st.divider()
     
-    # Suggestions
-    st.subheader("💡 Suggestions")
-    if remaining > 0:
-        st.info(f"You have energy left! Based on your remaining budget ({remaining:.0f} kcal), you could eat:")
-        suggestions = suggest_food(remaining)
-        if suggestions:
-            st.write(", ".join(suggestions))
-        else:
-            st.write("Small snack (e.g., an apple or salad).")
-    elif remaining < 0:
-        st.warning("You have exceeded your daily target. Consider a light walk or reducing intake tomorrow.")
+    st.subheader("Manual Add")
+    m_name = st.text_input("Food Name")
+    m_cal = st.number_input("Calories", 0, 2000, 0)
+    if st.button("Add Manual Entry"):
+        st.session_state.log.append({'name': m_name, 'cal': m_cal, 'date': datetime.date.today()})
+        st.rerun()
 
-    # Charts (Simple Altair Chart)
-    st.subheader("Target vs Actual")
-    chart_data = pd.DataFrame({
-        'Category': ['Intake', 'Target', 'Remaining'],
-        'Calories': [total_intake, daily_target, max(0, remaining)]
-    })
+    # Show Today's Log
+    today_log = [x for x in st.session_state.log if x['date'] == datetime.date.today()]
+    if today_log:
+        df = pd.DataFrame(today_log)
+        st.table(df)
+        total = df['cal'].sum()
+        st.metric("Total Today", f"{total} kcal")
     
-    chart = alt.Chart(chart_data).mark_bar().encode(
-        x='Category',
-        y='Calories',
-        color='Category'
-    )
-    st.altair_chart(chart, use_container_width=True)
-
-# --- TAB 4: FITNESS CALCULATOR ---
-with tab4:
-    st.subheader("Log Exercise")
-    
-    ex_type = st.selectbox("Exercise Type", list(EXERCISE_DB.keys()))
-    duration = st.number_input("Duration (minutes)", min_value=1, value=30)
-    # Optional parameters (placeholder for logic)
-    hr = st.text_input("Avg Heart Rate (Optional)")
-    
-    # Simple MET calculation: Calories = MET * Weight(kg) * Duration(hr)
-    # Assuming standard weight of 70kg for demo if not set
-    weight = st.number_input("Your Weight (kg)", value=70)
-    
-    met = EXERCISE_DB[ex_type]
-    est_burn = met * weight * (duration / 60)
-    
-    st.write(f"Estimated Burn: **{est_burn:.0f} kcal**")
-    
-    manual_burn = st.number_input("Override Calories Burned", value=int(est_burn))
-    
-    if st.button("Log Exercise"):
-        st.session_state.log.append({
-            'type': 'Exercise',
-            'name': ex_type,
-            'amount': f"{duration} mins",
-            'calories': manual_burn, # Note: Burn is stored as positive but subtracted in calculation
-            'date': datetime.date.today()
-        })
-        st.success("Exercise Logged!")
+# --- TAB 3: DASHBOARD ---
+with tab3:
+    st.header("📊 Progress")
+    if not st.session_state.log:
+        st.write("Start logging food to see data here.")
+    else:
+        df_all = pd.DataFrame(st.session_state.log)
+        # Chart: Calories over time
+        c = alt.Chart(df_all).mark_bar().encode(
+            x='date',
+            y='cal',
+            tooltip=['name', 'cal']
+        )
+        st.altair_chart(c, use_container_width=True)
