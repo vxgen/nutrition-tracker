@@ -108,31 +108,79 @@ if 'logged_in' not in st.session_state:
     st.session_state.real_name = None
 
 if 'user_profile' not in st.session_state:
-    st.session_state.user_profile = {'target': 2000, 'goals': ['Maintain']}
+    st.session_state.user_profile = {'target': 2000, 'goals': ['Maintain Current Weight']}
 
 if 'food_log' not in st.session_state:
     st.session_state.food_log = []
 
-# --- 5. LOGIC & DATA ---
+# --- 5. LOGIC & DATA (RESTORED FULL LISTS) ---
 FOOD_DB = pd.DataFrame([
     {'name': 'Oatmeal & Berries', 'cal': 350, 'type': 'Breakfast'},
     {'name': 'Egg White Omelet', 'cal': 250, 'type': 'Breakfast'},
     {'name': 'Avocado Toast', 'cal': 400, 'type': 'Breakfast'},
     {'name': 'Grilled Chicken Salad', 'cal': 450, 'type': 'Lunch'},
+    {'name': 'Quinoa Power Bowl', 'cal': 500, 'type': 'Lunch'},
     {'name': 'Grilled Salmon', 'cal': 600, 'type': 'Dinner'},
-    {'name': 'Lean Steak', 'cal': 700, 'type': 'Dinner'},
+    {'name': 'Lean Steak & Veg', 'cal': 700, 'type': 'Dinner'},
     {'name': 'Protein Shake', 'cal': 180, 'type': 'Snack'},
+    {'name': 'Almonds (30g)', 'cal': 170, 'type': 'Snack'},
     {'name': 'Apple', 'cal': 80, 'type': 'Snack'}
 ])
 
+# --- RESTORED COMPREHENSIVE GOAL LIST ---
 GOAL_DB = {
-    "Maintain Weight": 0, "Lose Weight (Slow)": -250, 
-    "Lose Weight (Fast)": -500, "Build Muscle": 300
+    # Weight Management
+    "Maintain Current Weight": 0,
+    "Lose Weight (Slow & Steady)": -250,
+    "Lose Weight (Standard)": -500,
+    "Lose Weight (Aggressive)": -750,
+    "Weight Gain (Muscle)": 300,
+    
+    # Fitness & Performance
+    "Build Muscle (Lean Bulk)": 300,
+    "Build Muscle (Dirty Bulk)": 600,
+    "Marathon / Ultra Training": 800,
+    "Triathlon Training": 700,
+    "Cycling (Endurance)": 600,
+    "Swimming (Competitive)": 500,
+    "Strength Training / Powerlifting": 400,
+    "CrossFit / HIIT Performance": 450,
+    
+    # Health & Medical
+    "Manage Type 2 Diabetes (Low Sugar)": -200,
+    "Heart Health (Low Sodium)": -100,
+    "PCOS Management": -250,
+    "IBS / Low FODMAP": 0,
+    "Celiac / Gluten Free": 0,
+    
+    # Dietary Styles
+    "Keto / Low Carb Adaptation": 0,
+    "Intermittent Fasting (16:8)": 0,
+    "Pregnancy (2nd/3rd Trimester)": 350,
+    "Breastfeeding": 500,
+    "Improve Energy / Fatigue": 0
 }
+
+# --- RESTORED COMPREHENSIVE ACTIVITY LEVELS ---
+ACTIVITY_LEVELS = [
+    "Sedentary (Office Job)",
+    "Lightly Active (1-3 days)",
+    "Moderately Active (3-5 days)",
+    "Very Active (6-7 days)",
+    "Athlete (2x per day)"
+]
 
 def calculate_target(weight, height, age, gender, activity, goal):
     bmr = (10 * weight) + (6.25 * height) - (5 * age) + 5 if gender == 'Male' else (10 * weight) + (6.25 * height) - (5 * age) - 161
-    multipliers = {"Sedentary": 1.2, "Lightly Active": 1.375, "Moderately Active": 1.55, "Very Active": 1.725}
+    
+    multipliers = {
+        "Sedentary (Office Job)": 1.2,
+        "Lightly Active (1-3 days)": 1.375,
+        "Moderately Active (3-5 days)": 1.55,
+        "Very Active (6-7 days)": 1.725,
+        "Athlete (2x per day)": 1.9
+    }
+    # Default to 1.2 if not found
     tdee = bmr * multipliers.get(activity, 1.2)
     return int(tdee + GOAL_DB.get(goal, 0))
 
@@ -161,7 +209,10 @@ if not st.session_state.logged_in:
                         profile = load_latest_profile(user, st.session_state.client)
                         if profile:
                             st.session_state.user_profile = profile
-                            tgt = calculate_target(profile['weight'], profile['height'], profile['age'], profile['gender'], profile['activity'], profile['goal'])
+                            tgt = calculate_target(
+                                profile['weight'], profile['height'], profile['age'], 
+                                profile['gender'], profile['activity'], profile['goal']
+                            )
                             st.session_state.user_profile['target'] = tgt
                         
                         # Load Logs
@@ -195,8 +246,7 @@ if nav == "📝 Daily Tracker":
     today_str = str(datetime.date.today())
     today_logs = [x for x in st.session_state.food_log if str(x.get('date')) == today_str]
     
-    # --- CALCULATION FIX ---
-    # 1. Filter out 'Profile_Settings' to fix the 2200 ghost calories
+    # 1. Filter out 'Profile_Settings' (Ghost calories fix)
     # 2. Separate Food vs Exercise
     food_logs = [x for x in today_logs if x['type'] not in ['Exercise', 'Profile_Settings']]
     exercise_logs = [x for x in today_logs if x['type'] == 'Exercise']
@@ -205,7 +255,6 @@ if nav == "📝 Daily Tracker":
     burned = sum(entry['cal'] for entry in exercise_logs)
     
     base_target = st.session_state.user_profile.get('target', 2000)
-    # Logic: Target increases if you burn calories
     adjusted_target = base_target + burned
     remaining = adjusted_target - consumed
     
@@ -241,7 +290,6 @@ if nav == "📝 Daily Tracker":
             ex_name = c_ex.text_input("Exercise (e.g., Running 5k)")
             ex_cal = c_burn.number_input("Calories Burned", min_value=0, step=10)
             if st.form_submit_button("Add Exercise"):
-                # Save exercise with type 'Exercise'
                 new_entry = {'date': today_str, 'name': ex_name, 'cal': ex_cal, 'type': 'Exercise'}
                 sheet1 = get_tab(st.session_state.client, "Sheet1")
                 if sheet1:
@@ -250,13 +298,12 @@ if nav == "📝 Daily Tracker":
                     st.success(f"Added {ex_name} (-{ex_cal} kcal)")
                     st.rerun()
 
-    # LOG DISPLAY (Hide Profile Updates from view)
+    # LOG DISPLAY
     if today_logs:
         st.subheader("Today's Log")
         display_logs = [x for x in today_logs if x['type'] != 'Profile_Settings']
         st.dataframe(pd.DataFrame(display_logs)[['name', 'cal', 'type']], use_container_width=True)
 
-# ... (Rest of pages: Analytics, Planner, Profile remain the same as previous) ...
 elif nav == "📊 Analytics":
     st.header("📊 Progress & Trends")
     p_sheet = get_tab(st.session_state.client, "profiles")
@@ -283,7 +330,7 @@ elif nav == "📊 Analytics":
                 chart = alt.Chart(filtered_df).mark_line(point=True, color='teal').encode(
                     x=alt.X('date:T', title='Date'),
                     y=alt.Y('weight:Q', scale=alt.Scale(zero=False), title='Weight (kg)'),
-                    tooltip=['date', 'weight']
+                    tooltip=['date', 'weight', 'goal']
                 ).properties(height=350)
                 st.altair_chart(chart, use_container_width=True)
             else: st.info("No data for this time range.")
@@ -316,8 +363,21 @@ elif nav == "👤 Profile":
         h = c2.number_input("Height (cm)", value=int(curr.get('height', 170)))
         a = c1.number_input("Age", value=int(curr.get('age', 30)))
         g = c2.selectbox("Gender", ["Male", "Female"], index=0 if curr.get('gender') == 'Male' else 1)
-        act = st.selectbox("Activity Level", ["Sedentary", "Lightly Active", "Moderately Active", "Very Active"], index=0)
-        goal = st.selectbox("Goal", list(GOAL_DB.keys()), index=0)
+        
+        # RESTORED ACTIVITY LEVEL DROPDOWN
+        act_index = 0
+        current_act = curr.get('activity', '')
+        if current_act in ACTIVITY_LEVELS:
+            act_index = ACTIVITY_LEVELS.index(current_act)
+        act = st.selectbox("Activity Level", ACTIVITY_LEVELS, index=act_index)
+        
+        # RESTORED GOAL DROPDOWN (Sorted)
+        goal_options = sorted(list(GOAL_DB.keys()))
+        goal_index = 0
+        current_goal = curr.get('goal', '')
+        if current_goal in goal_options:
+            goal_index = goal_options.index(current_goal)
+        goal = st.selectbox("Goal", goal_options, index=goal_index)
         
         if st.form_submit_button("💾 Save & Update"):
             new_target = calculate_target(w, h, a, g, act, goal)
