@@ -20,225 +20,227 @@ FOOD_DB = pd.DataFrame([
     {'name': 'Apple', 'cal': 80, 'type': 'Snack', 'tags': ['Healthy', 'Carbs']}
 ])
 
-# --- 3. DATA: SMART GOAL DATABASE ---
-# Format: "Goal Name": Calorie Adjustment (Daily)
+# --- 3. DATA: THE MEGA GOAL DICTIONARY ---
+# This acts as your "Internal Search Engine".
+# Format: "Goal Name": Daily Calorie Adjustment
 GOAL_DB = {
-    # Weight Loss
+    # --- WEIGHT MANAGEMENT ---
     "Maintain Current Weight": 0,
-    "Slow Weight Loss (-0.25kg/week)": -250,
-    "Standard Weight Loss (-0.5kg/week)": -500,
-    "Aggressive Weight Loss (-1kg/week)": -1000,
-    "Summer Cut (Definition)": -400,
+    "Lose Weight (Slow & Steady)": -250,
+    "Lose Weight (Standard)": -500,
+    "Lose Weight (Aggressive)": -750,
+    "Weight Gain (Slow)": 250,
+    "Weight Gain (Fast)": 500,
     
-    # Muscle & Strength
-    "Lean Bulk (Muscle w/o Fat)": 250,
-    "Dirty Bulk (Max Mass)": 500,
-    "Strength Training Support": 300,
-    "Muscle Toning": -100, # Slight deficit for definition
+    # --- FITNESS & BODYBUILDING ---
+    "Build Muscle (Lean Bulk)": 300,
+    "Build Muscle (Dirty Bulk)": 600,
+    "Body Recomposition (Lose Fat/Gain Muscle)": -200,
+    "Strength Training (Powerlifting)": 400,
+    "CrossFit / HIIT Performance": 400,
+    "Six Pack Abs (Definition)": -300,
     
-    # Performance / Athletic
-    "Marathon/Triathlon Training": 600,
-    "HIIT / Crossfit Fuel": 350,
-    "Sports Performance (Match Day)": 400,
-    "Recovery Mode (Post-Injury)": 100,
+    # --- SPORTS SPECIFIC ---
+    "Marathon / Ultra Training": 800,
+    "Triathlon Training": 700,
+    "Cycling (Endurance)": 600,
+    "Swimming (Competitive)": 500,
+    "Football / Soccer Match Prep": 450,
+    "Basketball Performance": 400,
+    "Boxing / MMA Training": 500,
+    "Yoga / Pilates Lifestyle": 100,
+    "Golf Performance": 100,
     
-    # Health & Dietary
-    "Keto Adaptation": 0,
-    "Low Carb / High Fat": 0,
+    # --- DIETARY STYLES ---
+    "Keto / Low Carb Adaptation": 0,
+    "Carnivore Diet Support": 0,
+    "Vegan / Plant-Based Transition": 0,
+    "Paleo Lifestyle": 0,
     "Intermittent Fasting (16:8)": 0,
-    "Heart Health (Low Sodium)": 0,
-    "Pregnancy (2nd/3rd Trimester)": 300,
-    "Breastfeeding": 500
+    "OMAD (One Meal A Day)": 0,
+    
+    # --- MEDICAL / HEALTH (Non-Diagnostic) ---
+    "Manage Type 2 Diabetes (Low Sugar)": -200,
+    "Heart Health (Low Sodium/Cholesterol)": -100,
+    "PCOS Management": -250,
+    "IBS / Low FODMAP": 0,
+    "Celiac / Gluten Free": 0,
+    "Pregnancy (1st Trimester)": 100,
+    "Pregnancy (2nd/3rd Trimester)": 350,
+    "Breastfeeding / Lactation": 500,
+    "Recovery from Surgery/Injury": 200,
+    
+    # --- LIFESTYLE ---
+    "Improve Energy Levels": 0,
+    "Better Sleep Hygiene": 0,
+    "Quit Smoking (Manage Appetite)": -150,
+    "Reduce Alcohol Consumption": -100,
+    "Cognitive Performance (Brain Food)": 0
 }
 
 # --- 4. SESSION STATE ---
-if 'log' not in st.session_state:
-    st.session_state.log = [] 
-if 'generated_plan' not in st.session_state:
-    st.session_state.generated_plan = None 
+if 'log' not in st.session_state: st.session_state.log = [] 
+if 'generated_plan' not in st.session_state: st.session_state.generated_plan = None 
 if 'user_profile' not in st.session_state:
-    st.session_state.user_profile = {
-        'name': 'Guest', 'target': 2000, 'goals': ['Maintain Current Weight']
-    }
-if 'setup_complete' not in st.session_state:
-    st.session_state.setup_complete = False
+    st.session_state.user_profile = {'name': 'Guest', 'target': 2000, 'goals': ['Maintain Current Weight']}
+if 'setup_complete' not in st.session_state: st.session_state.setup_complete = False
 
-# --- 5. LOGIC FUNCTIONS ---
+# --- 5. LOGIC ---
 def calculate_bmr(weight, height, age, gender):
-    if gender == 'Male':
-        return (10 * weight) + (6.25 * height) - (5 * age) + 5
-    else:
-        return (10 * weight) + (6.25 * height) - (5 * age) - 161
+    return (10 * weight) + (6.25 * height) - (5 * age) + 5 if gender == 'Male' else (10 * weight) + (6.25 * height) - (5 * age) - 161
 
 def calculate_tdee(bmr, activity_level):
     multipliers = {
         "Sedentary (Office Job)": 1.2,
-        "Lightly Active (1-3 days/week)": 1.375,
-        "Moderately Active (3-5 days/week)": 1.55,
-        "Very Active (6-7 days/week)": 1.725,
+        "Lightly Active (1-3 days)": 1.375,
+        "Moderately Active (3-5 days)": 1.55,
+        "Very Active (6-7 days)": 1.725,
         "Athlete (2x per day)": 1.9
     }
     return bmr * multipliers.get(activity_level, 1.2)
 
-def calculate_target_from_goals(tdee, selected_goals):
+def calculate_target_from_goals(tdee, selected_goals, custom_goals_list):
     adjustment = 0
-    # Sum up adjustments from the DB
+    # 1. DB Goals
     for goal in selected_goals:
-        if goal in GOAL_DB:
-            adjustment += GOAL_DB[goal]
-            
-    final = tdee + adjustment
-    return max(final, 1200) # Safety floor
+        adjustment += GOAL_DB.get(goal, 0)
+    
+    # 2. Custom Goals (Simple logic: If user adds custom "Run", we don't know the cal, so we add 0)
+    # Ideally, custom goals are just for the user's reference in the UI.
+    
+    return max(tdee + adjustment, 1200)
 
 def generate_menu(target):
     menu = []
     current_cal = 0
-    # 3 Meals
     for meal_type in ['Breakfast', 'Lunch', 'Dinner']:
         item = FOOD_DB[FOOD_DB['type'] == meal_type].sample(1).iloc[0].to_dict()
         menu.append(item)
         current_cal += item['cal']
-    # Snacks to fill gap
     attempts = 0
-    while current_cal < (target - 100) and attempts < 10:
+    while current_cal < (target - 100) and attempts < 15:
         item = FOOD_DB[FOOD_DB['type'] == 'Snack'].sample(1).iloc[0].to_dict()
         menu.append(item)
         current_cal += item['cal']
         attempts += 1
     return menu
 
-# --- 6. SIDEBAR NAVIGATION ---
+# --- 6. NAVIGATION ---
 st.sidebar.title("📱 Navigation")
 page = st.sidebar.radio("Go to", ["👤 Profile & Targets", "📅 Smart Planner", "📝 Daily Tracker", "📊 Dashboard"])
-
 st.sidebar.divider()
 if st.session_state.setup_complete:
     p = st.session_state.user_profile
-    st.sidebar.subheader("🎯 Active Targets")
-    st.sidebar.metric("Target", f"{p['target']:.0f} kcal")
-    st.sidebar.caption(f"Goals: {len(p['goals'])} selected")
-else:
-    st.sidebar.warning("⚠ Setup Required")
+    st.sidebar.metric("Daily Target", f"{p['target']:.0f} kcal")
+    st.sidebar.caption("Goals Active: " + str(len(p['goals'])))
 
-# --- PAGE 1: PROFILE & TARGET SETUP ---
+# --- PAGE 1: SETUP ---
 if page == "👤 Profile & Targets":
-    st.title("👤 User Profile & Target Setup")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("1. Stats")
+    st.title("👤 User Profile")
+    c1, c2 = st.columns(2)
+    with c1:
         name = st.text_input("First Name", value=st.session_state.user_profile.get('name', ''))
         gender = st.selectbox("Gender", ["Male", "Female"])
         age = st.number_input("Age", 18, 100, 30)
         weight = st.number_input("Weight (kg)", 40, 200, 70)
         height = st.number_input("Height (cm)", 100, 250, 175)
-        
-    with col2:
-        st.subheader("2. Activity")
-        activity = st.selectbox("Activity Level", [
-            "Sedentary (Office Job)", "Lightly Active (1-3 days/week)", 
-            "Moderately Active (3-5 days/week)", "Very Active (6-7 days/week)", "Athlete (2x per day)"
-        ])
+    with c2:
+        activity = st.selectbox("Activity Level", ["Sedentary (Office Job)", "Lightly Active (1-3 days)", "Moderately Active (3-5 days)", "Very Active (6-7 days)", "Athlete (2x per day)"])
         
         st.divider()
-        st.subheader("3. Select Your Goals")
-        st.info("💡 Type in the box below to search. You can select multiple goals.")
+        st.subheader("3. Smart Goal Search")
+        st.write("Type to search our database (e.g., 'Keto', 'Run', 'Diabetes').")
         
-        # KEY CHANGE: Using the Keys from GOAL_DB provides 30+ predictive options
-        options_list = list(GOAL_DB.keys())
+        # --- THE PREDICTIVE SEARCH ENGINE ---
+        # Sorting keys alphabetically makes searching easier visually too
+        all_options = sorted(list(GOAL_DB.keys()))
         
         selected_goals = st.multiselect(
-            "Search or Select Goals:", 
-            options_list,
+            "Select your Goals:", 
+            all_options,
             default=["Maintain Current Weight"],
-            help="Start typing (e.g., 'Muscle', 'Loss', 'Run') to filter options."
+            placeholder="Type here to search..."
         )
         
-        # KEY CHANGE: Custom Goal Input
-        st.markdown("**Goal not in the list?**")
-        custom_goal = st.text_input("Enter a custom goal (optional)")
-        
-        if custom_goal and custom_goal not in selected_goals:
-            # We treat custom goals as neutral (0 cal adjustment) unless user specifies otherwise (advanced)
-            selected_goals.append(custom_goal)
-            st.caption(f"Added custom goal: '{custom_goal}' (Note: Custom goals don't auto-adjust calories)")
+        # --- CUSTOM GOAL FALLBACK ---
+        st.write("---")
+        with st.expander("My goal isn't in the list"):
+            st.write("If you have a very specific goal not listed above, add it here.")
+            custom_input = st.text_input("Custom Goal Name")
+            if custom_input:
+                st.info(f"Custom Goal '{custom_input}' will be tagged to your profile (No calorie adjustment applied).")
 
     st.divider()
-    
-    if st.button("💾 Save Profile & Calculate", type="primary"):
+    if st.button("💾 Save Profile", type="primary"):
         bmr = calculate_bmr(weight, height, age, gender)
         tdee = calculate_tdee(bmr, activity)
-        final_target = calculate_target_from_goals(tdee, selected_goals)
+        
+        # Combine lists for storage
+        final_goals_list = selected_goals
+        if custom_input:
+            final_goals_list.append(custom_input)
+            
+        target = calculate_target_from_goals(tdee, selected_goals, [custom_input])
         
         st.session_state.user_profile = {
-            'name': name, 'bmr': bmr, 'tdee': tdee,
-            'target': final_target, 'goals': selected_goals, 'activity': activity
+            'name': name, 'bmr': bmr, 'tdee': tdee, 'target': target, 
+            'goals': final_goals_list, 'activity': activity
         }
         st.session_state.setup_complete = True
-        st.success("Profile Updated Successfully!")
+        st.balloons()
+        st.success("Profile Saved! Check the sidebar for your new targets.")
 
-    if st.session_state.setup_complete:
-        st.success(f"**Target Calculated:** {st.session_state.user_profile['target']:.0f} kcal")
-
-# --- PAGE 2: SMART PLANNER ---
+# --- PAGE 2: PLANNER ---
 elif page == "📅 Smart Planner":
     st.title("📅 Smart Planner")
     if not st.session_state.setup_complete:
-        st.error("Please configure your goals in the Profile page first.")
+        st.warning("Please complete your profile setup first.")
     else:
-        st.write(f"Plan for: **{', '.join(st.session_state.user_profile['goals'])}**")
-        duration = st.selectbox("Duration", ["1 Week", "1 Month", "3 Months", "6 Months", "1 Year"])
+        st.subheader(f"Plan for: {st.session_state.user_profile['name']}")
+        st.write(f"**Goals:** {', '.join(st.session_state.user_profile['goals'])}")
         
-        if st.button("Generate Plan Template"):
+        duration = st.selectbox("Plan Duration", ["1 Week", "1 Month", "3 Months", "6 Months", "1 Year"])
+        
+        if st.button("Generate Meal Plan"):
             menu = generate_menu(st.session_state.user_profile['target'])
             st.session_state.generated_plan = menu
             st.rerun()
 
         if st.session_state.generated_plan:
-            st.subheader("Daily Menu Template")
+            st.write(f"### Daily Template ({st.session_state.user_profile['target']:.0f} kcal)")
             for item in st.session_state.generated_plan:
                 c1, c2, c3 = st.columns([2, 4, 2])
                 c1.write(f"**{item['type']}**")
                 c2.write(item['name'])
                 c3.write(f"{item['cal']} kcal")
 
-# --- PAGE 3: DAILY TRACKER ---
+# --- PAGE 3: TRACKER ---
 elif page == "📝 Daily Tracker":
     st.title("📝 Daily Tracker")
     
-    # Plan Checklist
     if st.session_state.generated_plan:
-        with st.expander("Tick off from Plan", expanded=True):
+        with st.expander("Quick Add from Plan", expanded=True):
             cols = st.columns(3)
             for idx, item in enumerate(st.session_state.generated_plan):
                 with cols[idx%3]:
-                    if st.button(f"Eat {item['name']}", key=f"t_{idx}"):
-                        st.session_state.log.append({
-                            'name': item['name'], 'cal': item['cal'], 
-                            'date': datetime.date.today(), 'type': 'Food'
-                        })
-                        st.toast(f"Logged {item['name']}")
+                    if st.button(f"+ {item['name']}", key=f"t_{idx}"):
+                        st.session_state.log.append({'name': item['name'], 'cal': item['cal'], 'date': datetime.date.today(), 'type': 'Food'})
+                        st.toast(f"Added {item['name']}")
     
     st.divider()
-    
-    # Manual Input
     c1, c2, c3 = st.columns([3, 2, 1])
-    with c1: m_name = st.text_input("Manual Food/Exercise Name")
-    with c2: m_cal = st.number_input("Calories (+Food / -Exercise)", value=0)
+    with c1: m_name = st.text_input("Manual Entry Name")
+    with c2: m_cal = st.number_input("Calories", 0, 2000, 0)
     with c3: 
-        if st.button("Add Log"):
-            st.session_state.log.append({
-                'name': m_name, 'cal': m_cal, 
-                'date': datetime.date.today(), 'type': 'Manual'
-            })
+        if st.button("Add"):
+            st.session_state.log.append({'name': m_name, 'cal': m_cal, 'date': datetime.date.today(), 'type': 'Manual'})
             st.rerun()
 
-    # View Logs
     today = [x for x in st.session_state.log if x['date'] == datetime.date.today()]
     if today:
         df = pd.DataFrame(today)
-        st.dataframe(df)
-        st.metric("Total Today", f"{df['cal'].sum()} kcal", f"Target: {st.session_state.user_profile.get('target', 2000):.0f}")
+        st.dataframe(df, use_container_width=True)
+        st.metric("Total Today", f"{df['cal'].sum()} kcal")
 
 # --- PAGE 4: DASHBOARD ---
 elif page == "📊 Dashboard":
@@ -248,4 +250,4 @@ elif page == "📊 Dashboard":
         c = alt.Chart(df).mark_bar().encode(x='date', y='cal', color='type')
         st.altair_chart(c, use_container_width=True)
     else:
-        st.info("No data yet.")
+        st.info("Start logging to see data here.")
