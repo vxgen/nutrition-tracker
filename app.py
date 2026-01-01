@@ -6,6 +6,46 @@ import gspread
 from google.oauth2.service_account import Credentials
 import json
 
+# --- 🔍 DEBUGGER START (Remove this block after fixing) ---
+st.divider()
+st.subheader("🔍 Connection Diagnostics")
+
+if "service_account_info" not in st.secrets:
+    st.error("❌ Critical: 'service_account_info' not found in Secrets!")
+else:
+    try:
+        # 1. Check loaded secrets
+        key_dict = json.loads(st.secrets["service_account_info"])
+        email = key_dict.get("client_email", "Unknown")
+        st.write(f"**Attempting connection as:** `{email}`")
+        
+        # 2. Check Private Key Format
+        pk = key_dict.get("private_key", "")
+        if "-----BEGIN PRIVATE KEY-----" not in pk:
+            st.error("❌ Private Key Error: Missing 'BEGIN PRIVATE KEY' header. Check your paste.")
+        elif "\\n" not in pk and "\n" not in pk:
+            st.error("❌ Private Key Error: No newlines detected. It must look like multiple lines.")
+        else:
+            st.success("✅ Private Key format looks okay.")
+
+        # 3. Test Google Connection
+        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        # Handle the \n replacement just like the main code
+        if "\\n" in key_dict["private_key"]:
+            key_dict["private_key"] = key_dict["private_key"].replace("\\n", "\n")
+            
+        creds = Credentials.from_service_account_info(key_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        sheet_test = client.open("NutriTrack_Data").sheet1
+        st.success(f"✅ SUCCESS! Connected to Sheet: '{sheet_test.title}'")
+        st.info(f"Current headers: {sheet_test.row_values(1)}")
+        
+    except Exception as e:
+        st.error(f"❌ CONNECTION FAILED: {e}")
+        st.code(str(e)) # This prints the exact error message
+st.divider()
+# --- 🔍 DEBUGGER END ---
+
 # --- 1. CONFIGURATION & GOOGLE SHEETS SETUP ---
 st.set_page_config(page_title="NutriTrack Pro", layout="wide", initial_sidebar_state="expanded")
 
