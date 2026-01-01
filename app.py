@@ -129,6 +129,8 @@ if 'user_profile' not in st.session_state:
     st.session_state.user_profile = {'target': 2000, 'goals': ['Maintain Current Weight']}
 if 'food_log' not in st.session_state:
     st.session_state.food_log = []
+if 'generated_plan' not in st.session_state:
+    st.session_state.generated_plan = []
 
 # --- 5. DATA ---
 
@@ -306,16 +308,12 @@ if nav == "📝 Daily Tracker":
                 st.toast(f"Added {name}")
                 st.rerun()
 
-    # 4. HISTORY (FIXED KEY ERROR)
+    # 4. HISTORY
     st.subheader("Today's History (Edit/Delete)")
     if today_logs:
         df = pd.DataFrame(today_logs)
-        
-        # --- FIX: Ensure columns exist if data is old ---
         for col in ['amount', 'unit']:
-            if col not in df.columns:
-                df[col] = 1.0 if col == 'amount' else ''
-        # ------------------------------------------------
+            if col not in df.columns: df[col] = 1.0 if col == 'amount' else ''
         
         edited_df = st.data_editor(
             df[['name', 'cal', 'type', 'amount', 'unit']],
@@ -341,7 +339,7 @@ if nav == "📝 Daily Tracker":
     else:
         st.info("No logs for today.")
 
-# --- PAGE: ANALYTICS ---
+# --- PAGE: ANALYTICS (FIXED KEYERROR) ---
 elif nav == "📊 Analytics":
     st.header("📊 Analytics")
     p_sheet = get_tab(st.session_state.client, "profiles")
@@ -350,39 +348,41 @@ elif nav == "📊 Analytics":
         user_records = [r for r in all_records if str(r.get('username')) == st.session_state.username]
         if user_records:
             df = pd.DataFrame(user_records)
-            df['date'] = pd.to_datetime(df['date'])
-            df['weight'] = pd.to_numeric(df['weight'])
-            chart = alt.Chart(df).mark_line(point=True).encode(x='date:T', y=alt.Y('weight', scale=alt.Scale(zero=False))).properties(title="Weight Trend")
-            st.altair_chart(chart, use_container_width=True)
+            # Normalize Headers to avoid KeyErrors (e.g. "Date" vs "date")
+            df.columns = [c.lower() for c in df.columns]
+            
+            if 'date' in df.columns and 'weight' in df.columns:
+                df['date'] = pd.to_datetime(df['date'])
+                df['weight'] = pd.to_numeric(df['weight'])
+                chart = alt.Chart(df).mark_line(point=True).encode(x='date:T', y=alt.Y('weight', scale=alt.Scale(zero=False))).properties(title="Weight Trend")
+                st.altair_chart(chart, use_container_width=True)
+            else:
+                st.error("❌ Data Error: 'profiles' sheet missing 'date' or 'weight' columns. Check your Google Sheet headers.")
+        else:
+            st.info("No profile history found.")
 
-# --- PAGE: PROFILE ---
-elif nav == "👤 Profile":
-    st.header("👤 Profile Settings")
-    curr = st.session_state.user_profile
-    with st.form("prof"):
-        w = st.number_input("Weight (kg)", value=float(curr.get('weight', 70)))
-        h = st.number_input("Height (cm)", value=int(curr.get('height', 170)))
-        a = st.number_input("Age", value=int(curr.get('age', 30)))
-        g = st.selectbox("Gender", ["Male", "Female"], index=0 if curr.get('gender')=='Male' else 1)
-        
-        act_idx = 0
-        if curr.get('activity') in ACTIVITY_LEVELS:
-            act_idx = ACTIVITY_LEVELS.index(curr.get('activity'))
-        act = st.selectbox("Activity", ACTIVITY_LEVELS, index=act_idx)
-        
-        goals = st.multiselect("Goals", list(GOAL_DB.keys()), default=curr.get('goals', ['Maintain Current Weight']))
-        
-        if st.form_submit_button("Update"):
-            t = calculate_bmr_tdee(w, h, a, g, act)
-            tgt = calculate_target(t, goals)
-            upd = {'weight': w, 'height': h, 'age': a, 'gender': g, 'activity': act, 'goals': goals, 'target': tgt}
-            st.session_state.user_profile = upd
-            save_profile_update(st.session_state.username, upd, st.session_state.client)
-            st.success(f"Saved! New Target: {tgt} kcal")
-            st.rerun()
-
+# --- PAGE: PLANNER (RESTORED) ---
 elif nav == "📅 Planner":
-    st.header("📅 Meal Planner")
-    st.write("Generate a simple plan based on your target.")
-    if st.button("Generate"):
-        st.info("Feature coming soon!")
+    st.header("📅 Smart Meal Planner")
+    current_target = st.session_state.user_profile.get('target', 2000)
+    st.write(f"Generating plan for target: **{current_target} kcal**")
+    
+    if st.button("🎲 Generate Meal Plan"):
+        plan = []
+        current_cal = 0
+        attempts = 0
+        # Randomly pick meals until target reached (minus buffer)
+        while current_cal < (current_target - 200) and attempts < 20:
+            item = FOOD_DB.sample(1).iloc[0].to_dict()
+            plan.append(item)
+            current_cal += item['cal_per_unit']
+            attempts += 1
+        st.session_state.generated_plan = plan
+
+    if st.session_state.generated_plan:
+        st.write("### Suggested Menu")
+        for item in st.session_state.generated_plan:
+            c1, c2, c3 = st.columns([3, 1, 1])
+            c1.write(f"**{item['name']}**")
+            c2.write(f"{item['cal_per_unit']} kcal")
+            c3.write(f"_{item['unit']}_")
