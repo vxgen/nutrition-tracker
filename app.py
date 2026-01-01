@@ -1,13 +1,65 @@
 import streamlit as st
-import pandas as pd
-import datetime
-import altair as alt
+import json
 import gspread
 from google.oauth2.service_account import Credentials
-# Note: We removed 'import json' because we don't need it for the new method!
 
-# --- 1. CONFIGURATION & GOOGLE SHEETS SETUP ---
-st.set_page_config(page_title="NutriTrack Pro", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(layout="wide")
+st.title("🕵️‍♂️ Connection Diagnostic")
+
+# 1. READ SECRETS
+st.write("### 1. Checking Secrets...")
+if "service_account" not in st.secrets:
+    st.error("❌ section '[service_account]' is MISSING in secrets.")
+elif "payload" not in st.secrets["service_account"]:
+    st.error("❌ key 'payload' is MISSING inside [service_account].")
+else:
+    st.success("✅ Secrets structure found.")
+    
+    # 2. PARSE JSON
+    try:
+        raw_json = st.secrets["service_account"]["payload"]
+        key_dict = json.loads(raw_json)
+        email = key_dict.get("client_email", "Unknown")
+        st.write(f"**Bot Email detected:** `{email}`")
+        st.success("✅ JSON parsed successfully.")
+        
+        # 3. TEST CONNECTION
+        st.write("### 2. Testing Google API...")
+        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        
+        # Auto-fix newlines just in case
+        if "\\n" in key_dict["private_key"]:
+            key_dict["private_key"] = key_dict["private_key"].replace("\\n", "\n")
+            
+        creds = Credentials.from_service_account_info(key_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        sheet = client.open("NutriTrack_Data")
+        
+        st.success(f"🎉 SUCCESS! Connected to sheet: **{sheet.title}**")
+        st.balloons()
+        
+    except Exception as e:
+        st.error(f"❌ CONNECTION FAILED: {e}")
+        st.write("---")
+        st.warning("👇 **COMMON FIXES FOR THIS ERROR:**")
+        if "API has not been used" in str(e) or "project" in str(e):
+            st.markdown("""
+            **The Google Sheets API is disabled.**
+            1. Go to [Google Cloud Console](https://console.cloud.google.com/).
+            2. Select your project **nutrition-app-483014**.
+            3. Search for **"Google Sheets API"** -> Click **Enable**.
+            4. Search for **"Google Drive API"** -> Click **Enable**.
+            """)
+        elif "SpreadsheetNotFound" in str(e):
+            st.markdown(f"""
+            **The Bot cannot see the file.**
+            1. Copy this email: `{email}`
+            2. Go to your Google Sheet -> **Share**.
+            3. Paste the email and set as **Editor**.
+            """)
+
+st.stop() # Stops the rest of the app from running so you can focus on this result
+# ---------------------------------------------------------
 
 # --- CONNECT TO GOOGLE SHEETS (EXPANDED TOML METHOD) ---
 @st.cache_resource
