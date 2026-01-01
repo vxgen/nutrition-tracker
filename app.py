@@ -16,7 +16,6 @@ def get_google_sheet():
     Attempts to connect to Google Sheets using the modern google-auth library.
     Returns the sheet object if successful, or None if it fails.
     """
-    # Load credentials from Streamlit Secrets
     try:
         if "service_account_info" in st.secrets:
             # 1. Parse the JSON string
@@ -60,6 +59,10 @@ def load_data(sheet):
 
 # Helper to Save Data
 def save_entry_to_sheet(sheet, entry):
+    """
+    Saves a dictionary entry to the Google Sheet.
+    Expects dictionary keys: date, name, cal, type
+    """
     try:
         if sheet:
             row = [str(entry['date']), entry['name'], entry['cal'], entry['type']]
@@ -81,7 +84,7 @@ FOOD_DB = pd.DataFrame([
     {'name': 'Apple', 'cal': 80, 'type': 'Snack', 'tags': ['Healthy', 'Carbs']}
 ])
 
-# --- UPDATED GOAL DICTIONARY (Diabetes & Medical Restored) ---
+# --- UPDATED GOAL DICTIONARY ---
 GOAL_DB = {
     # Weight Management
     "Maintain Current Weight": 0,
@@ -100,14 +103,14 @@ GOAL_DB = {
     "Strength Training / Powerlifting": 400,
     "CrossFit / HIIT Performance": 450,
     
-    # Health & Medical (Restored)
-    "Manage Type 2 Diabetes (Low Sugar)": -200,  # <--- RESTORED
+    # Health & Medical
+    "Manage Type 2 Diabetes (Low Sugar)": -200,
     "Heart Health (Low Sodium)": -100,
     "PCOS Management": -250,
     "IBS / Low FODMAP": 0,
     "Celiac / Gluten Free": 0,
     
-    # Dietary Styles & Life Stages
+    # Dietary Styles
     "Keto / Low Carb Adaptation": 0,
     "Intermittent Fasting (16:8)": 0,
     "Pregnancy (2nd/3rd Trimester)": 350,
@@ -200,6 +203,8 @@ if st.session_state.setup_complete:
 # --- PAGE 1: PROFILE ---
 if page == "👤 Profile & Targets":
     st.title("👤 User Profile")
+    st.info("ℹ️ Clicking 'Save' will record your profile settings to the Google Sheet.")
+    
     c1, c2 = st.columns(2)
     with c1:
         name = st.text_input("First Name", value=st.session_state.user_profile.get('name', ''))
@@ -210,25 +215,38 @@ if page == "👤 Profile & Targets":
     with c2:
         activity = st.selectbox("Activity Level", ["Sedentary (Office Job)", "Lightly Active (1-3 days)", "Moderately Active (3-5 days)", "Very Active (6-7 days)", "Athlete (2x per day)"])
         st.divider()
-        # Sort options for better UX
         all_options = sorted(list(GOAL_DB.keys()))
         selected_goals = st.multiselect("Select Goals:", all_options, default=["Maintain Current Weight"])
         with st.expander("Custom Goal"):
             custom_input = st.text_input("Goal Name")
 
     if st.button("💾 Save Profile", type="primary"):
+        # 1. Calculations
         bmr = calculate_bmr(weight, height, age, gender)
         tdee = calculate_tdee(bmr, activity)
         bmi, bmi_cat = calculate_bmi(weight, height)
-        
         final_goals = selected_goals + ([custom_input] if custom_input else [])
         target = calculate_target_from_goals(tdee, selected_goals, [custom_input])
         
+        # 2. Update Session State
         st.session_state.user_profile = {
             'name': name, 'bmr': bmr, 'tdee': tdee, 'target': target, 
             'goals': final_goals, 'activity': activity, 'bmi': bmi, 'bmi_category': bmi_cat
         }
         st.session_state.setup_complete = True
+        
+        # 3. SAVE TO GOOGLE SHEET (The fix)
+        if st.session_state.sheet:
+            # We construct a special 'Profile Update' entry
+            profile_entry = {
+                'date': str(datetime.date.today()),
+                'name': f"Profile Update: {name} ({weight}kg)",
+                'cal': int(target),
+                'type': 'Profile_Settings'
+            }
+            save_entry_to_sheet(st.session_state.sheet, profile_entry)
+            st.toast("Profile saved to Google Sheet!", icon="☁️")
+        
         st.balloons()
         st.rerun()
 
@@ -282,6 +300,7 @@ elif page == "📝 Daily Tracker":
 
     # 3. SHOW LOG (Filtered for Today)
     today_str = str(datetime.date.today())
+    # Ensure log is clean
     safe_log = [x for x in st.session_state.log if isinstance(x, dict)]
     today_data = [x for x in safe_log if str(x.get('date')) == today_str]
     
