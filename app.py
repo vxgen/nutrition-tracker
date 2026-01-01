@@ -91,7 +91,6 @@ def save_profile_update(username, data, client):
 def sync_log_to_sheet(client, log_data, date_str):
     """
     Deletes old logs for the specific date and rewrite the updated list.
-    This allows 'Editing' and 'Deleting' history to sync with cloud.
     """
     if not client: return
     sheet = get_tab(client, "Sheet1")
@@ -103,21 +102,18 @@ def sync_log_to_sheet(client, log_data, date_str):
         if not all_vals: return
         
         # 2. Filter out rows that MATCH today's date (we will replace them)
-        # Assuming Date is Column 1 (index 0)
-        # Keep header (row 0) and rows that are NOT today
         new_rows = [row for row in all_vals if row[0] != date_str]
         
         # 3. Append the NEW updated logs for today
         for entry in log_data:
-            # Only save if it matches today (safety check)
             if str(entry['date']) == date_str:
                 new_rows.append([
                     str(entry['date']), 
                     entry['name'], 
                     str(entry['cal']), 
                     entry['type'],
-                    str(entry.get('amount', 1)), # Save amount if exists
-                    str(entry.get('unit', ''))   # Save unit if exists
+                    str(entry.get('amount', 1)),
+                    str(entry.get('unit', ''))
                 ])
         
         # 4. Clear and Update Sheet
@@ -141,7 +137,6 @@ if 'food_log' not in st.session_state:
 
 # --- 5. LOGIC & DATA ---
 
-# Added 'cal_per_unit' for auto-calc
 FOOD_DB = pd.DataFrame([
     {'name': 'Oatmeal & Berries', 'cal_per_unit': 350, 'unit': 'Bowl'},
     {'name': 'Egg White Omelet', 'cal_per_unit': 250, 'unit': 'Serving'},
@@ -155,7 +150,6 @@ FOOD_DB = pd.DataFrame([
     {'name': 'Apple', 'cal_per_unit': 80, 'unit': 'Piece'}
 ])
 
-# Added burn rate (cal per minute)
 EXERCISE_DB = pd.DataFrame([
     {'name': 'Running (Moderate)', 'cal_per_min': 10},
     {'name': 'Running (Fast)', 'cal_per_min': 14},
@@ -180,13 +174,13 @@ ACTIVITY_LEVELS = ["Sedentary (Office Job)", "Lightly Active (1-3 days)", "Moder
 
 def calculate_target(tdee, goals):
     if isinstance(goals, str): goals = [goals]
+    # Sum up adjustments for all selected goals
     adj = sum([GOAL_DB.get(g, 0) for g in goals])
     return max(int(tdee + adj), 1200)
 
 def calculate_bmr_tdee(weight, height, age, gender, activity):
     bmr = (10 * weight) + (6.25 * height) - (5 * age) + 5 if gender == 'Male' else (10 * weight) + (6.25 * height) - (5 * age) - 161
     multi = {"Sedentary": 1.2, "Lightly Active": 1.375, "Moderately Active": 1.55, "Very Active": 1.725, "Athlete": 1.9}
-    # fuzzy match activity
     act_key = next((k for k in multi if k in activity), "Sedentary")
     return bmr * multi[act_key]
 
@@ -232,7 +226,13 @@ if not st.session_state.logged_in:
                         prof = load_latest_profile(u, st.session_state.client)
                         if prof:
                             gs = prof.get('goal', 'Maintain')
-                            if isinstance(gs, str): gs = [x.strip() for x in gs.split(',')]
+                            # Handle string goal lists
+                            if isinstance(gs, str):
+                                gs = [x.strip() for x in gs.split(',') if x.strip()]
+                            # Ensure goals exist in DB
+                            gs = [g for g in gs if g in GOAL_DB]
+                            if not gs: gs = ['Maintain Current Weight']
+
                             st.session_state.user_profile = prof
                             st.session_state.user_profile['goals'] = gs
                             t = calculate_bmr_tdee(prof['weight'], prof['height'], prof['age'], prof['gender'], prof['activity'])
@@ -255,7 +255,6 @@ if not st.session_state.logged_in:
 
 # --- 8. MAIN APP & SIDEBAR ---
 st.sidebar.markdown(f"### 👤 {st.session_state.real_name}")
-# KJ SWITCH
 use_kj = st.sidebar.toggle("Use Kilojoules (kJ)", value=False)
 unit_label = "kJ" if use_kj else "kcal"
 conv = 4.184 if use_kj else 1.0
@@ -264,4 +263,161 @@ if st.sidebar.button("Logout"):
     st.session_state.logged_in = False
     st.rerun()
 st.sidebar.divider()
-nav = st.sidebar
+nav = st.sidebar.radio("Navigation", ["📝 Daily Tracker", "📊 Analytics", "📅 Planner", "👤 Profile"])
+
+# --- PAGE: TRACKER ---
+if nav == "📝 Daily Tracker":
+    st.header(f"📝 Daily Tracker ({unit_label})")
+    today_str = str(datetime.date.today())
+    
+    # 1. PROCESS LOGS (FILTER OUT PROFILE SETTINGS!)
+    all_logs = st.session_state.food_log
+    
+    # FILTER: Exclude entries that are NOT 'Manual' or 'Exercise' (This removes Profile_Settings)
+    today_logs = [
+        x for x in all_logs 
+        if str(x.get('date')) == today_str 
+        and x.get('type') in ['Manual', 'Exercise']
+    ]
+    
+    food_sum = sum([float(x['cal']) for x in today_logs if x['type'] == 'Manual'])
+    burn_sum = sum([float(x['cal']) for x in today_logs if x['type'] == 'Exercise'])
+    
+    base_target = st.session_state.user_profile.get('target', 2000)
+    final_target = base_target + burn_sum
+    remaining = final_target - food_sum
+    
+    # 2. METRICS
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Food", f"{int(food_sum * conv)} {unit_label}")
+    c2.metric("Exercise", f"{int(burn_sum * conv)} {unit_label}")
+    c3.metric("Remaining", f"{int(remaining * conv)} {unit_label}", delta="Earned" if burn_sum > 0 else None)
+    
+    # 3. ADD ENTRY
+    tab_food, tab_ex = st.tabs(["🍽️ Add Meal", "🏃 Add Exercise"])
+    
+    with tab_food:
+        c1, c2, c3 = st.columns([2, 1, 1])
+        # Food Select
+        f_opts = ["Custom..."] + list(FOOD_DB['name'].unique())
+        sel_food = c1.selectbox("Food", f_opts, key='food_select', on_change=update_food_cal)
+        
+        # Quantity
+        qty = c2.number_input("Amount (Serving)", 0.5, 10.0, 1.0, step=0.5, key='food_qty', on_change=update_food_cal)
+        
+        # Calories
+        cal = c3.number_input(f"Calories (kcal)", 0.0, 5000.0, step=10.0, key='food_cal_input')
+        
+        if st.button("➕ Add Food"):
+            name = st.session_state.get('custom_food_name') if sel_food == "Custom..." else sel_food
+            if sel_food == "Custom..." and not name:
+                name = st.text_input("Enter Food Name", key="custom_food_name")
+                
+            if name and cal > 0:
+                new_entry = {'date': today_str, 'name': name, 'cal': cal, 'type': 'Manual', 'amount': qty, 'unit': 'Serving'}
+                st.session_state.food_log.append(new_entry)
+                sync_log_to_sheet(st.session_state.client, st.session_state.food_log, today_str)
+                st.toast(f"Added {name}")
+                st.rerun()
+                
+    with tab_ex:
+        c1, c2, c3 = st.columns([2, 1, 1])
+        # Ex Select
+        e_opts = ["Custom..."] + list(EXERCISE_DB['name'].unique())
+        sel_ex = c1.selectbox("Exercise", e_opts, key='ex_select', on_change=update_ex_cal)
+        
+        # Duration
+        mins = c2.number_input("Duration (mins)", 5, 180, 30, step=5, key='ex_mins', on_change=update_ex_cal)
+        
+        # Calories
+        ex_cal = c3.number_input(f"Burned (kcal)", 0.0, 5000.0, step=10.0, key='ex_cal_input')
+        
+        if st.button("🏃 Add Exercise"):
+            name = st.session_state.get('custom_ex_name') if sel_ex == "Custom..." else sel_ex
+            if sel_ex == "Custom..." and not name:
+                name = st.text_input("Enter Exercise Name", key="custom_ex_name")
+                
+            if name and ex_cal > 0:
+                new_entry = {'date': today_str, 'name': name, 'cal': ex_cal, 'type': 'Exercise', 'amount': mins, 'unit': 'mins'}
+                st.session_state.food_log.append(new_entry)
+                sync_log_to_sheet(st.session_state.client, st.session_state.food_log, today_str)
+                st.toast(f"Added {name}")
+                st.rerun()
+
+    # 4. HISTORY
+    st.subheader("Today's History (Edit/Delete)")
+    if today_logs:
+        df = pd.DataFrame(today_logs)
+        edited_df = st.data_editor(
+            df[['name', 'cal', 'type', 'amount', 'unit']],
+            column_config={
+                "cal": st.column_config.NumberColumn("Calories (kcal)"),
+                "amount": st.column_config.NumberColumn("Qty/Mins"),
+            },
+            num_rows="dynamic",
+            use_container_width=True,
+            key="history_editor"
+        )
+        
+        if not df[['name', 'cal', 'type', 'amount', 'unit']].equals(edited_df):
+            if st.button("💾 Save Changes to Cloud"):
+                kept_logs = [x for x in st.session_state.food_log if str(x.get('date')) != today_str]
+                new_logs = edited_df.to_dict('records')
+                for n in new_logs: n['date'] = today_str
+                
+                final_log = kept_logs + new_logs
+                st.session_state.food_log = final_log
+                sync_log_to_sheet(st.session_state.client, final_log, today_str)
+                st.success("History updated!")
+                st.rerun()
+    else:
+        st.info("No logs for today.")
+
+# --- PAGE: ANALYTICS ---
+elif nav == "📊 Analytics":
+    st.header("📊 Analytics")
+    p_sheet = get_tab(st.session_state.client, "profiles")
+    if p_sheet:
+        all_records = p_sheet.get_all_records()
+        user_records = [r for r in all_records if str(r.get('username')) == st.session_state.username]
+        if user_records:
+            df = pd.DataFrame(user_records)
+            df['date'] = pd.to_datetime(df['date'])
+            df['weight'] = pd.to_numeric(df['weight'])
+            chart = alt.Chart(df).mark_line(point=True).encode(x='date:T', y=alt.Y('weight', scale=alt.Scale(zero=False))).properties(title="Weight Trend")
+            st.altair_chart(chart, use_container_width=True)
+
+# --- PAGE: PLANNER ---
+elif nav == "📅 Planner":
+    st.header("📅 Meal Planner")
+    st.write("Generate a simple plan based on your target.")
+    if st.button("Generate"):
+        st.info("Feature coming soon!")
+
+# --- PAGE: PROFILE ---
+elif nav == "👤 Profile":
+    st.header("👤 Profile Settings")
+    curr = st.session_state.user_profile
+    with st.form("prof"):
+        w = st.number_input("Weight (kg)", value=float(curr.get('weight', 70)))
+        h = st.number_input("Height (cm)", value=int(curr.get('height', 170)))
+        a = st.number_input("Age", value=int(curr.get('age', 30)))
+        g = st.selectbox("Gender", ["Male", "Female"], index=0 if curr.get('gender')=='Male' else 1)
+        
+        # ACTIVITY LEVEL RESTORED
+        act_idx = 0
+        if curr.get('activity') in ACTIVITY_LEVELS:
+            act_idx = ACTIVITY_LEVELS.index(curr.get('activity'))
+        act = st.selectbox("Activity", ACTIVITY_LEVELS, index=act_idx)
+        
+        # MULTI-SELECT GOALS RESTORED
+        goals = st.multiselect("Goals", list(GOAL_DB.keys()), default=curr.get('goals', ['Maintain Current Weight']))
+        
+        if st.form_submit_button("Update"):
+            t = calculate_bmr_tdee(w, h, a, g, act)
+            tgt = calculate_target(t, goals)
+            upd = {'weight': w, 'height': h, 'age': a, 'gender': g, 'activity': act, 'goals': goals, 'target': tgt}
+            st.session_state.user_profile = upd
+            save_profile_update(st.session_state.username, upd, st.session_state.client)
+            st.success(f"Saved! New Target: {tgt} kcal")
+            st.rerun()
